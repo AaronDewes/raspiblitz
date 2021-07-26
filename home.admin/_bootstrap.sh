@@ -165,6 +165,15 @@ if [ ${numberOfPubKeys} -eq 0 ]; then
   echo "OK" >> $logFile
 fi
 
+# If the base image is Blitz OS,make sure fsck is run on the root partition using sudo tune2fs -c 1 /dev/mmcblk0p2
+# Skip this if /etc/fs-tuned-blitz is present
+if [ ! -f /etc/fs-tuned-blitz ] && [ "${baseimage}" = "blitz" ]; then
+  echo "*** Running fsck on root partition" >> $logFile
+  sudo tune2fs -c 1 /dev/mmcblk0p2
+  touch /etc/fs-tuned-blitz
+  echo "OK" >> $logFile
+fi
+
 ################################
 # AFTER BOOT SCRIPT
 # when a process needs to 

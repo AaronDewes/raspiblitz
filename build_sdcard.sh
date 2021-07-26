@@ -164,6 +164,9 @@ fi
 if [ ${isDietPi} -gt 0 ]; then
   baseimage="dietpi"
 fi
+if [ -f "/etc/generated-using-vmdb2" ]; then
+  baseimage="blitz"
+fi
 if [ "${baseimage}" = "?" ]; then
   cat /etc/os-release 2>/dev/null
   echo "!!! FAIL: Base Image cannot be detected or is not supported."
@@ -210,7 +213,11 @@ if [ ${torSourceListAvailable} -eq 0 ]; then
   elif [ "${baseimage}" = "ubuntu" ]; then
     echo "- using https://deb.torproject.org/torproject.org focal"
     echo "deb https://deb.torproject.org/torproject.org focal main" | sudo tee -a /etc/apt/sources.list
-    echo "deb-src https://deb.torproject.org/torproject.org focal main" | sudo tee -a /etc/apt/sources.list    
+    echo "deb-src https://deb.torproject.org/torproject.org focal main" | sudo tee -a /etc/apt/sources.list
+  elif [ "${baseimage}" = "blitz" ]; then
+    echo "- using https://deb.torproject.org/torproject.org bullseye"
+    echo "deb https://deb.torproject.org/torproject.org bullseye main" | sudo tee -a /etc/apt/sources.list
+    echo "deb-src https://deb.torproject.org/torproject.org bullseye main" | sudo tee -a /etc/apt/sources.list  
   else
     echo "!!! FAIL: No Tor sources for os: ${baseimage}"
     exit 1
@@ -230,7 +237,8 @@ echo ""
 # https://daker.me/2014/10/how-to-fix-perl-warning-setting-locale-failed-in-raspbian.html
 # https://stackoverflow.com/questions/38188762/generate-all-locales-in-a-docker-image
 if [ "${baseimage}" = "raspbian" ] || [ "${baseimage}" = "dietpi" ] || \
-   [ "${baseimage}" = "raspios_arm64" ]||[ "${baseimage}" = "debian_rpi64" ]; then
+   [ "${baseimage}" = "raspios_arm64" ]||[ "${baseimage}" = "debian_rpi64" ] || \
+   ["${baseimage}" = "blitz"]; then
   echo ""
   echo "*** FIXING LOCALES FOR BUILD ***"
 
@@ -262,6 +270,13 @@ sudo apt remove -y --purge libreoffice* oracle-java* chromium-browser nuscratch 
 sudo apt clean
 sudo apt -y autoremove
 
+# If the baseimage is blitz, we start using basically nothing, so install python3 manually using apt
+if [ "${baseimage}" = "blitz" ]; then
+  echo "*** Installing Python3 ***"
+  sudo apt install -y python3
+  sudo apt install -y python3-pip
+fi
+
 if [ -f "/usr/bin/python3.7" ]; then
   # make sure /usr/bin/python exists (and calls Python3.7 in Buster)
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.7 1
@@ -271,6 +286,11 @@ elif [ -f "/usr/bin/python3.8" ]; then
   sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.8 1
   sudo ln -s /usr/bin/python3.8 /usr/bin/python3.7
   echo "python calls python3.8"
+elif [ -f "/usr/bin/python3.9" ]; then
+  # use python 3.9 if available
+  sudo update-alternatives --install /usr/bin/python python /usr/bin/python3.9 1
+  sudo ln -s /usr/bin/python3.9 /usr/bin/python3.7
+  echo "python calls python3.9"
 else
   echo "!!! FAIL !!!"
   echo "There is no tested version of python present"
@@ -296,22 +316,30 @@ elif [ "$(compgen -u | grep -c pi)" -eq 0 ];then
   sudo adduser pi sudo
 fi
 
+
 # special prepare when Raspbian
 if [ "${baseimage}" = "raspbian" ]||[ "${baseimage}" = "raspios_arm64" ]||\
-   [ "${baseimage}" = "debian_rpi64" ]; then
-  sudo apt install -y raspi-config 
-  # do memory split (16MB)
-  sudo raspi-config nonint do_memory_split 16
-  # set to wait until network is available on boot (0 seems to yes)
-  sudo raspi-config nonint do_boot_wait 0
-  # set WIFI country so boot does not block
-  if [ "${modeWifi}" != "false" ]; then
-    # this will undo the softblock of rfkill on RaspiOS
-    sudo raspi-config nonint do_wifi_country $modeWifi
+   [ "${baseimage}" = "debian_rpi64" ]||[ "${baseimage}" = "blitz" ]; then
+  # Only do this if not on blitz os
+  if [ "${baseimage}" != "blitz" ]; then
+    sudo apt install -y raspi-config
+    # do memory split (16MB)
+    sudo raspi-config nonint do_memory_split 16
+    # set to wait until network is available on boot (0 seems to yes)
+    sudo raspi-config nonint do_boot_wait 0
+    # set WIFI country so boot does not block
+    if [ "${modeWifi}" != "false" ]; then
+      # this will undo the softblock of rfkill on RaspiOS
+      sudo raspi-config nonint do_wifi_country $modeWifi
+    fi
   fi
   # see https://github.com/rootzoll/raspiblitz/issues/428#issuecomment-472822840
 
   configFile="/boot/config.txt"
+  # On Blitz os, this file is in /boot/firmware/
+  if [ "${baseimage}" = "blitz" ]; then
+    configFile="/boot/firmware/config.txt"
+  fi
   max_usb_current="max_usb_current=1"
   max_usb_currentDone=$(grep -c "$max_usb_current" $configFile)
 
@@ -327,7 +355,7 @@ if [ "${baseimage}" = "raspbian" ]||[ "${baseimage}" = "raspios_arm64" ]||\
   # see: https://github.com/rootzoll/raspiblitz/issues/782#issuecomment-564981630
   # see https://github.com/rootzoll/raspiblitz/issues/1053#issuecomment-600878695
   # use command to check last fsck check: sudo tune2fs -l /dev/mmcblk0p2
-  if [ "${tweakBootdrives}" == "true" ]; then
+  if [ "${tweakBootdrives}" == "true" ] && [ "${baseimage}" != "blitz" ]; then
     echo "* running tune2fs"
     sudo tune2fs -c 1 /dev/mmcblk0p2
   else
@@ -336,6 +364,10 @@ if [ "${baseimage}" = "raspbian" ]||[ "${baseimage}" = "raspios_arm64" ]||\
 
   # edit kernel parameters
   kernelOptionsFile=/boot/cmdline.txt
+  # On Blitz os, this file is in /boot/firmware/
+  if [ "${baseimage}" = "blitz" ]; then
+    kernelOptionsFile=/boot/firmware/cmdline.txt
+  fi
   fsOption1="fsck.mode=force"
   fsOption2="fsck.repair=yes"
   fsOption1InFile=$(grep -c ${fsOption1} ${kernelOptionsFile})
@@ -372,7 +404,7 @@ echo "pi:raspiblitz" | sudo chpasswd
 # prepare auto-start of 00infoLCD.sh script on pi user login (just kicks in if auto-login of pi is activated in HDMI or LCD mode)
 if [ "${baseimage}" = "raspbian" ]||[ "${baseimage}" = "raspios_arm64" ]||\
   [ "${baseimage}" = "debian_rpi64" ]||[ "${baseimage}" = "armbian" ]||\
-  [ "${baseimage}" = "ubuntu" ]; then
+  [ "${baseimage}" = "ubuntu" ]||[ "${baseimage}" = "blitz" ]; then
   homeFile=/home/pi/.bashrc
   autostartDone=$(grep -c "automatic start the LCD" $homeFile)
   if [ ${autostartDone} -eq 0 ]; then
@@ -679,13 +711,17 @@ fi
 sudo bash -c "echo '' >> /home/admin/.bashrc"
 sudo bash -c "echo '# Raspiblitz' >> /home/admin/.bashrc"
 
-echo ""
-echo "*** SWAP FILE ***"
-# based on https://github.com/Stadicus/guides/blob/master/raspibolt/raspibolt_20_pi.md#moving-the-swap-file
-# but just deactivating and deleting old (will be created alter when user adds HDD)
+if [ "${baseimage}" != "blitz" ]; then
+  echo ""
+  echo "*** SWAP FILE ***"
+  # based on https://github.com/Stadicus/guides/blob/master/raspibolt/raspibolt_20_pi.md#moving-the-swap-file
+  # but just deactivating and deleting old (will be created alter when user adds HDD)
 
-sudo dphys-swapfile swapoff
-sudo dphys-swapfile uninstall
+  sudo dphys-swapfile swapoff
+  sudo dphys-swapfile uninstall
+else
+  sudo apt -y install dphys-swapfile
+fi
 
 echo ""
 echo "*** INCREASE OPEN FILE LIMIT ***"
@@ -714,7 +750,7 @@ sudo /home/admin/config.scripts/blitz.cache.sh on
 
 # *** Wifi, Bluetooth & other configs ***
 if [ "${baseimage}" = "raspbian" ]||[ "${baseimage}" = "raspios_arm64"  ]||\
-   [ "${baseimage}" = "debian_rpi64" ]; then
+   [ "${baseimage}" = "debian_rpi64" ]||[ "${baseimage}" = "blitz" ]; then
    
   if [ "${modeWifi}" == "false" ]; then
     echo ""
