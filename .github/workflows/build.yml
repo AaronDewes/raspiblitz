@@ -22,9 +22,9 @@ jobs:
       run: |
               git clone https://gitlab.com/larswirzenius/vmdb2.git
               git clone https://salsa.debian.org/raspi-team/image-specs.git
-              mv mage-specs/rootfs ./
+              mv image-specs/rootfs ./
               # We're not caching the rootfs and rebuild it every time, but we still need to set a cache file
-              sudo vmdb2/vmdb2 --output rpi.img --rootfs-tarball ./cache-tarball build-blitz-os.vmdb
+              sudo vmdb2/vmdb2 -v --output rpi.img --rootfs-tarball ./cache-tarball build-blitz-os.vmdb
     - name: Upload build artifact
       uses: actions/upload-artifact@v2
       with:
