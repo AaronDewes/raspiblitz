@@ -9,7 +9,6 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Clone the repository AaronDewes/vmdb-config
-      uses: actions/checkout@v2
       run: git clone https://github.com/AaronDewes/vmdb-config.git
     - name: Generate config
       run: ./vmdb-config/create-vmdb2-config -t rpi -o build-blitz-os.vmdb $(realpath build_sdcard.sh)
