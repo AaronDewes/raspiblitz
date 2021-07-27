@@ -20,7 +20,8 @@ jobs:
     - name: Install vmdb2 from git and build
       run: |
               git clone https://gitlab.com/larswirzenius/vmdb2.git
-              sudo vmdb2/vmdb2 --output rpi.img build-blitz-os.vmdb
+              # We're not caching the rootfs and rebuild it every time, but we still need to set a cache file
+              sudo vmdb2/vmdb2 --output rpi.img --rootfs-tarball ./cache-tarball build-blitz-os.vmdb
     - name: Upload build artifact
       uses: actions/upload-artifact@v2
       with:
