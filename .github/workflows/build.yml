@@ -14,8 +14,10 @@ jobs:
       run: ./vmdb-config/create-vmdb2-config -t rpi -o build-blitz-os.vmdb $(realpath build_sdcard.sh)
     - name: Install dependencies
       run: |
-              sudo apt-get update
-              sudo apt-get install -y cmdtest debootstrap e2fsprogs kpartx parted python3 python3-jinja2 python3-yaml qemu-utils qemu-user-static rsync wget
+              sudo sed -i 's/focal/impish/g' /etc/apt/sources.list
+              sudo apt update
+              sudo apt -y dist-upgrade
+              sudo apt install -y cmdtest debootstrap e2fsprogs kpartx parted python3 python3-jinja2 python3-yaml qemu-utils qemu-user-static rsync wget
     - name: Install vmdb2 from git and build
       run: |
               git clone https://gitlab.com/larswirzenius/vmdb2.git
