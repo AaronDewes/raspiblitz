@@ -4,6 +4,7 @@ if [ "$1" == "-h" ] || [ "$1" == "help" ]; then
  echo "script to unlock LND wallet"
  echo "lnd.unlock.sh status"
  echo "lnd.unlock.sh unlock [?passwordC]"
+ echo "lnd.unlock.sh chain-unlock [mainnet|testnet|signet]"
  exit 1
 fi
 
@@ -11,18 +12,37 @@ fi
 source /home/admin/raspiblitz.info
 source /mnt/hdd/raspiblitz.conf
 
-source <(/home/admin/config.scripts/network.aliases.sh getvars lnd ${chain}net)
-
 # 1. parameter (default is unlock)
 action="$1"
 
 # 2. parameter (optional password)
 passwordC="$2"
 
+# chain-unlock --> unlock with re-arranged parameters
+CHAIN="${chain}net"
+if [ "${action}" == "chain-unlock" ]; then
+    action="unlock"
+    passwordC=""
+    CHAIN=$2
+fi
+
+# dont if state is on reboot or shutdown
+if [ "${state}" == "reboot" ] || [ "${state}" == "shutdown" ]; then
+  echo "# ignore unlock - because system is in shutdown/reboot state"
+  sleep 1
+  exit 0
+fi
+
+source <(/home/admin/config.scripts/network.aliases.sh getvars lnd ${chain}net)
+
 # check if wallet is already unlocked
 # echo "# checking LND wallet ... (can take some time)"
 lndError=$(sudo -u bitcoin lncli --chain=${network} --network=${chain}net getinfo 2>&1)
 walletLocked=$(echo "${lndError}" | grep -c "Wallet is encrypted")
+if [ "${walletLocked}" == "0" ]; then
+    # test for new error message
+    walletLocked=$(echo "${lndError}" | grep -c "wallet locked")
+fi
 macaroonsMissing=$(echo "${lndError}" | grep -c "unable to read macaroon")
 
 # if action sis just status
@@ -86,8 +106,16 @@ while [ ${fallback} -eq 0 ]
     if [ ${wasUnlocked} -gt 0 ]; then
 
         # SUCCESS UNLOCK
-
         echo "# OK LND wallet unlocked"
+
+        # if autoUnlock set in config (but this manual input was needed)
+        # there seems to be no stored password - make sure to store password c now
+        if [ "${autoUnlock}" == "on" ]; then
+            echo "# storing password C for future Auto-Unlock"
+            /home/admin/config.scripts/lnd.autounlock.sh on "${passwordC}"
+            sleep 1
+        fi
+
         exit 0
 
     elif [ ${wrongPassword} -gt 0 ]; then

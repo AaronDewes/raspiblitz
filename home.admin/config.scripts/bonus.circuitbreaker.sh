@@ -1,6 +1,7 @@
 #!/bin/bash
 
-pinnedVersion="v0.2.0"
+# https://github.com/lightningequipment/circuitbreaker/releases
+pinnedVersion="v0.3.0"
 
 # command info
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "-help" ]; then
@@ -168,7 +169,7 @@ fi
 
 # update
 if [ "$1" = "update" ]; then
-  echo "# Updating Circuit Braker"
+  echo "# Updating Circuit Breaker"
   cd /home/circuitbreaker/circuitbreaker
   # from https://github.com/apotdevin/thunderhub/blob/master/scripts/updateToLatest.sh
   # fetch latest master

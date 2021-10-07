@@ -31,19 +31,19 @@ isValidIP() {
     # IPv6
     echo 1
   else
-    # unkown
+    # unknown
     echo 0
   fi
 }
 
 #############################################
-# by deafult ipv6 is off (for publicIP)
+# by default ipv6 is off (for publicIP)
 if [ "${ipv6}" = "" ]; then
   ipv6="off"
 fi
 
 #############################################
-# get active network device (eth0 or wlan0) & trafiic
+# get active network device (eth0 or wlan0) & traffic
 networkDevice=$(ip addr | grep -v "lo:" | grep 'state UP' | tr -d " " | cut -d ":" -f2 | head -n 1)
 # get network traffic
 # ifconfig does not show eth0 on Armbian or in a VM - get first traffic info
@@ -80,10 +80,6 @@ if [ "${localip:0:4}" = "169." ]; then
 fi
 
 #############################################
-# check WifiConfig
-configWifiExists=$(sudo cat /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null| grep -c "network=")
-
-#############################################
 # check for internet connection
 
 # first quick check if bitcoind has peers - if so the client is online
@@ -92,7 +88,7 @@ configWifiExists=$(sudo cat /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null|
 source <(/home/admin/config.scripts/network.monitor.sh peer-status cached)
 
 online=0
-if [ "${peers}" != "0" ]; then
+if [ "${peers}" != "0" ] && [ "${peers}" != "" ]; then
   # bitcoind has peers - so device is online
   online=1
 fi
@@ -139,14 +135,17 @@ if [ ${runGlobal} -eq 1 ]; then
   else
     globalIP=$(curl -s -f -S -m 5 http://v4.ipv6-test.com/api/myip.php 2>/dev/null)
   fi
+  echo "##  curl returned:  ${globalIP}"
+  echo "##  curl exit code: ${?}"
+
 
   # sanity check on IP data
   # see https://github.com/rootzoll/raspiblitz/issues/371#issuecomment-472416349
   echo "# sanity check of IP data:"
   if [[ $globalIP =~ ^(([0-9a-fA-F]{1,4}:){7,7}[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,7}:|([0-9a-fA-F]{1,4}:){1,6}:[0-9a-fA-F]{1,4}|([0-9a-fA-F]{1,4}:){1,5}(:[0-9a-fA-F]{1,4}){1,2}|([0-9a-fA-F]{1,4}:){1,4}(:[0-9a-fA-F]{1,4}){1,3}|([0-9a-fA-F]{1,4}:){1,3}(:[0-9a-fA-F]{1,4}){1,4}|([0-9a-fA-F]{1,4}:){1,2}(:[0-9a-fA-F]{1,4}){1,5}|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6})|:((:[0-9a-fA-F]{1,4}){1,7}|:)|fe80:(:[0-9a-fA-F]{0,4}){0,4}%[0-9a-zA-Z]{1,}|::(ffff(:0{1,4}){0,1}:){0,1}((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])|([0-9a-fA-F]{1,4}:){1,4}:((25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9])\.){3,3}(25[0-5]|(2[0-4]|1{0,1}[0-9]){0,1}[0-9]))$ ]]; then
-    echo "# OK IPv6"
+    echo "# OK IPv6 for ${globalIP}"
   elif [[ $globalIP =~ ^([0-9]{1,2}|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.([0-9]{1,2}|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.([0-9]{1,2}|1[0-9][0-9]|2[0-4][0-9]|25[0-5])\.([0-9]{1,2}|1[0-9][0-9]|2[0-4][0-9]|25[0-5])$ ]]; then
-    echo "# OK IPv4"
+    echo "# OK IPv4 for ${globalIP}"
   else
     echo "# FAIL - not an IPv4 or IPv6 address"
     globalIP=""
@@ -164,11 +163,11 @@ if [ ${runGlobal} -eq 1 ]; then
 
   ##########################################
   # Public IP
-  # the public that is maybe set by raspibitz config file (overriding aut-detection)
+  # the public that is maybe set by raspiblitz config file (overriding aut-detection)
   if [ "${publicIP}" == "" ]; then
     # if publicIP is not set by config ... use detected global IP
     if [ "${ipv6}" == "on" ]; then
-      # use ipv6 with brackes so that it can be used in http addresses like a IPv4
+      # use ipv6 with square brackets so that it can be used in http addresses like a IPv4
       publicIP="[${globalIP}]"
     else
       publicIP="${globalIP}"
@@ -197,11 +196,11 @@ if [ "$1" == "status" ]; then
   echo "online=${online}"
   if [ ${runGlobal} -eq 1 ]; then
     echo "ipv6=${ipv6}"
-     echo "# globalip --> ip detected from the outside"   
+    echo "# globalip --> ip detected from the outside"
     echo "globalip=${globalIP}"
     echo "# publicip --> may consider the static IP overide by raspiblitz config"
     echo "publicip=${publicIP}"
-    echo "# cleanip --> the publicip with no brakets like used on IPv6"
+    echo "# cleanip --> the publicip with no brackets like used on IPv6"
     echo "cleanip=${cleanIP}"
   else
     echo "# for more global internet info use 'status global'"
@@ -219,7 +218,7 @@ elif [ "$1" == "update-publicip" ]; then
   else
     echo "ip_changed=1"
     if [ "${ipv6}" == "on" ]; then
-      # use ipv6 with brackes so that it can be used in http addresses like a IPv4
+      # use ipv6 with square brackets so that it can be used in http addresses like an IPv4
       publicIP="[${globalIP}]"
     else
       publicIP="${globalIP}"
@@ -229,7 +228,7 @@ elif [ "$1" == "update-publicip" ]; then
 
   # store to raspiblitz.conf new publiciP
   publicIPValueExists=$(sudo cat /mnt/hdd/raspiblitz.conf | grep -c 'publicIP=')
-  if [ ${publicIPValueExists} -gt 1 ]; then 
+  if [ ${publicIPValueExists} -gt 1 ]; then
     # more then one publiIp entry - removing one
     sudo sed -i "s/^publicIP=.*//g" /mnt/hdd/raspiblitz.conf
   fi

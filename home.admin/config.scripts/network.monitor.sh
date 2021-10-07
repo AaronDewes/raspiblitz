@@ -10,7 +10,7 @@ if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "-help" ]; then
 fi
 
 source /home/admin/raspiblitz.info
-source /mnt/hdd/raspiblitz.conf
+source /mnt/hdd/raspiblitz.conf 2>/dev/null
 
 source <(/home/admin/config.scripts/network.aliases.sh getvars lnd ${chain}net)
 
@@ -36,7 +36,11 @@ if [ "$1" = "peer-status" ]; then
   running=1
   if [ "$EUID" -eq 0 ]; then
     # sudo call
-    peerNum=$(sudo -u admin $bitcoincli_alias getnetworkinfo 2>/dev/null | grep "connections\"" | tr -cd '[[:digit:]]')
+    running=$(systemctl status bitcoind 2>/dev/null | grep -c "active (running)")
+    peerNum=0
+    if [ "${running}" == "1" ]; then 
+      peerNum=$(sudo -u admin $bitcoincli_alias getnetworkinfo 2>/dev/null | grep "connections\"" | tr -cd '[[:digit:]]')
+    fi
   else
     # user call
     peerNum=$($bitcoincli_alias getnetworkinfo 2>/dev/null | grep "connections\"" | tr -cd '[[:digit:]]')
@@ -51,7 +55,7 @@ if [ "$1" = "peer-status" ]; then
     touch /var/cache/raspiblitz/network.monitor.peer-status.cache
     echo "running=${running}" > /var/cache/raspiblitz/network.monitor.peer-status.cache
     echo "peers=${peerNum}" >> /var/cache/raspiblitz/network.monitor.peer-status.cache
-    sudo chmod 664 /var/cache/raspiblitz/network.monitor.peer-status.cache
+    chmod 664 /var/cache/raspiblitz/network.monitor.peer-status.cache
   fi
 
   # output to user
@@ -94,10 +98,10 @@ if [ "$1" = "peer-kickstart" ]; then
   fi
   # check valid value
   if [ "${addressFormat}" != "ipv4" ] && [ "${addressFormat}" != "ipv6" ] && [ "${addressFormat}" != "tor" ] && [ "${addressFormat}" != "auto" ]; then
-    echo "error='unvalid network type'"
+    echo "error='invalid network type'"
     exit 1
   fi
-  # if auto then deterine whats running
+  # if auto then determine whats running
   if [ "${addressFormat}" == "auto" ]; then
     if [ "${runBehindTor}" == "on" ]; then
       addressFormat="tor"
@@ -123,8 +127,8 @@ if [ "$1" = "peer-kickstart" ]; then
     # get IPv6 nodes
     nodeList=$(echo "${bitnodesRawData}" | grep -o '\[.\{5,45\}\]\:[0-9]\{3,5\}')
   else
-    # unvalid address
-    echo "error='unvalid 2nd parameter'"
+    # invalid address
+    echo "error='invalid 2nd parameter'"
     exit 1
   fi
   #echo "${nodeList}"

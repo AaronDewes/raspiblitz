@@ -35,6 +35,12 @@ if [ "${setupPhase}" == "" ] || [ "${state}" == "" ]; then
 fi
 
 # special state: copysource
+if [ "${state}" = "stop" ]; then
+  echo "OK ready for manual provision - run 'release' at the end."
+  exit
+fi
+
+# special state: copysource
 if [ "${state}" = "copysource" ]; then
   echo "***********************************************************"
   echo "INFO: You lost connection during copying the blockchain"
@@ -62,7 +68,7 @@ fi
 
 # special state: copystation
 if [ "${state}" = "copystation" ]; then
-  echo "Copy Station is Runnning ..."
+  echo "Copy Station is Running ..."
   echo "reboot to return to normal"
   sudo /home/admin/XXcopyStation.sh
   exit
@@ -81,6 +87,7 @@ sudo chmod 740 /var/cache/raspiblitz/raspiblitz.status
 # an error drops user to terminal
 #####################################
 
+echo "# start ssh menu loop"
 exitMenuLoop=0
 doneIBD=0
 while [ ${exitMenuLoop} -eq 0 ]
@@ -94,7 +101,34 @@ do
 
   # gather fresh status scan and store results in memory
   # TODO: move this into background loop and unify with redis data storage later
-  sudo /home/admin/config.scripts/blitz.statusscan.sh > /var/cache/raspiblitz/raspiblitz.status
+  #echo "# blitz.statusscan.sh"
+
+  firstStatusScanExists=$(ls /var/cache/raspiblitz/raspiblitz.status | grep -c "raspiblitz.status")
+  #echo "firstStatusScanExists(${firstStatusScanExists})"
+  if [ ${firstStatusScanExists} -eq 1 ]; then
+
+    # run statusscan with timeout - if status scan was not killed it will copy over the 
+    timeout 15 /home/admin/config.scripts/blitz.statusscan.sh ${lightning} > /var/cache/raspiblitz/raspiblitz.status.tmp
+    result=$?
+    #echo "result(${result})"
+    if [ "${result}" == "0" ]; then
+     # statusscan finished in under 10 seconds - use results
+     cp /var/cache/raspiblitz/raspiblitz.status.tmp /var/cache/raspiblitz/raspiblitz.status
+    else
+     # statusscan blocked and was killed - fallback to old results
+     echo "statusscan blocked (${result}) - fallback to old results"
+     sleep 1
+    fi 
+  
+  else
+  
+    # first time run statusscan without timeout
+    echo "# running statusscan for the first time ... can take time"
+    /home/admin/config.scripts/blitz.statusscan.sh ${lightning} > /var/cache/raspiblitz/raspiblitz.status 
+
+  fi
+
+  # load statusscan results
   source /var/cache/raspiblitz/raspiblitz.status
 
   #####################################
@@ -104,8 +138,15 @@ do
   ############################
   # LND Wallet Unlock
 
-  if [ "${lndActive}" == "1" ] && [ "${walletLocked}" == "1" ] && [ "${state}" == "ready" ]; then
+  if [ "${lndActive}" == "1" ] && [ "${walletLocked}" == "1" ] && [ "${state}" == "ready" ] && [ "${setupPhase}" == "done" ]; then
+    #echo "# lnd.unlock.sh"
     /home/admin/config.scripts/lnd.unlock.sh
+  fi
+
+  # CL Wallet Unlock 
+  if [ "${CLwalletLocked}" == "1" ] && [ "${state}" == "ready" ] && [ "${setupPhase}" == "done" ]; then
+    /home/admin/config.scripts/cl.hsmtool.sh unlock
+    sleep 5
   fi
 
   #####################################
@@ -115,6 +156,7 @@ do
   # when is needed & bootstrap process signals that it waits for user dialog 
   if [ "${setupPhase}" != "done" ] && [ "${state}" == "waitsetup" ]; then
     # push user to main menu
+    echo "# controlSetupDialog.sh"
     /home/admin/setup.scripts/controlSetupDialog.sh
     # use the exit code from setup menu as signal if menu loop should exited
     # 0 = continue loop / everything else = break loop and exit to terminal
@@ -129,17 +171,36 @@ do
   # when is needed & bootstrap process signals that it waits for user dialog 
   if [ "${setupPhase}" != "done" ] && [ "${state}" == "waitfinal" ]; then
     # push to final setup gui dialogs
+    #echo "# controlFinalDialog.sh"
     /home/admin/setup.scripts/controlFinalDialog.sh
-    continue
+    # exit because controller will reboot at the end
+    exit 0
   fi  
+
+  # exit loop/script in case if system shutting down
+  if [ "${state}" == "reboot" ] || [ "${state}" == "shutdown" ]; then
+    dialog --pause "  Prepare Reboot ..." 8 58 4
+    clear
+    echo "***********************************************************"
+    echo "RaspiBlitz going to ${state}"
+    echo "***********************************************************"
+    if [ "${state}" == "reboot" ]; then
+      echo "SSH again into system with:"
+      echo "ssh admin@${localip}"
+      echo "Use your password A"
+      echo "***********************************************************"
+    fi
+    sleep 10
+    exit 0
+  fi
 
   #####################################
   # INITIAL BLOCKCHAIN SYNC (SUBLOOP)
   #####################################
-  if [ "${setupPhase}" == "done" ] && [ "${state}" == "ready" ] && [ "${initialSync}" == "1" ]; then
-    echo "debug wait eventBlockchainSync.sh ..."
-    sleep 3
-    /home/admin/setup.scripts/eventBlockchainSync.sh ssh loop
+  if [ "${lightning}" == "" ]; then syncedToChain=1; fi
+  if [ "${setupPhase}" == "done" ] && [ "${state}" == "ready" ] && [ "${syncedToChain}" != "1" ]; then
+    /home/admin/setup.scripts/eventBlockchainSync.sh ssh
+    sleep 10
     continue
   fi
 
@@ -150,6 +211,7 @@ do
   # when setup is done & state is ready .. jump to main menu
   if [ "${setupPhase}" == "done" ] && [ "${state}" == "ready" ]; then
     # MAIN MENU
+    echo "# 00mainMenu.sh"
     /home/admin/00mainMenu.sh
     # use the exit code from main menu as signal if menu loop should exited
     # 0 = continue loop / everything else = break loop and exit to terminal
@@ -185,21 +247,30 @@ do
     fi
 
     # for all critical errors (admin info & exit)
-    if [ "${state}" == "errorHDD" ]; then
-      echo "***********************************************************"
-      echo "SETUP ERROR - please report to development team"
-      echo "***********************************************************"
-      echo "state(${state}) message(${message})"
+    if [ "${state}" == "error" ] || [ "${state}" == "errorHDD" ]; then
+      clear
+      echo "###########################################################"
+      echo "# /home/admin/raspiblitz.log"
+      cat /home/admin/raspiblitz.log
       if [ "${state}" == "errorHDD" ]; then
         # print some debug detail info on HDD/SSD error
+        echo "###########################################################"
+        echo "# blitz.datadrive.sh status"
         sudo /home/admin/config.scripts/blitz.datadrive.sh status
       fi
+      if [ "${message}" == "_provision.setup.sh fail" ]; then
+        echo "# /home/admin/raspiblitz.provision-setup.log"
+        cat /home/admin/raspiblitz.provision-setup.log
+      fi
+      echo "***********************************************************"
+      echo "ERROR - please report to development team"
+      echo "***********************************************************"
+      echo "state(${state}) message(${message})"
+      echo "https://github.com/rootzoll/raspiblitz#support"
       echo "command to shutdown --> off"
       exit 1
     else
         # every other state just push as event to SSH frontend
-        echo "debug wait eventInfoWait.sh ..."
-        sleep 3
         /home/admin/setup.scripts/eventInfoWait.sh "${state}" "${message}"
     fi
 
@@ -208,6 +279,37 @@ do
 done
 
 echo "# menu loop received exit code ${exitMenuLoop} --> exit to terminal"
+echo
+echo "               -==@@@====@===--       --===@====@@@==-                "
+echo "            -@@=====-----=-===@@=====@@=====-----=====@@-       -==@- "
+echo "            -@@------==---------@@@@@=--------==------@@-  --=@@@@=   "
+echo "             @@=------======-----@@@-----======------=@@=@@===@@=     "
+echo "             =@@=---------=======@@@=======-----===@@@==-  =@@-       "
+echo "          -=@@==@@=----------=@@@@@@@@@=----==@@@==--   -=@@-         "
+echo "        -@@@=----=@@===--====@@@@@@@@@@@@@@@@=--      -=@@@@=         "
+echo "       =@@=--------@@@@@@@@@@@@@@@@@@@@@=--         -@@=---=@@-       "
+echo "     -@@=-------=@@@=====@@@@@@@@@@=--            =@@=-------@@@      "
+echo "    =@@=-------=@@====@@@@@@@@==-              -=@@@@=--------=@@-    "
+echo "   =@@---------@@==@@@@@@==-                 -=@@@=@@@---------=@@    "
+echo "  -@@=--------=@@@@@@=-                    -@@@@@@@@@@=---------=@@   "
+echo "  @@=-------@@@@@@@@@=-                  =@@@===@@@@=@@@@--------@@-  "
+echo " -@@=------@@====@@@=@@@=-            -=@@@======@@====@@@-------=@@  "
+echo " -@@------@@@====@@@====@@@=-         =@@@======@@@=====@@=------=@@  "
+echo " -@@------=@@====@@@@@=====@@@=-        -=@@@=@@@@@@===@@@=------=@@  "
+echo " -@@-------@@@=@@@@@@@@@@@@@@@=-           -=@@@@@@@@=@@@=-------=@@  "
+echo "  @@=-------=@@@@@@@@@@@@@@@=                 -=@@@=@@@@=--------@@=  "
+echo "  -@@--------=@@======@@@@-                    -=@@@@@@=--------=@@   "
+echo "   =@@--------@@@===@@@=-                 --=@@@@@@=@@@--------=@@-   "
+echo "    =@@--------@@@@@@=-               -==@@@@@=====@@@--------=@@-    "
+echo "     =@@=-------@@@=             -==@@@@@@@=====@@@@=--------=@@-     "
+echo "      -@@=----=@@-          -==@@@@@@@@@@@@@@@@@==---------=@@=       "
+echo "        =@@==@@-       -==@@@@@=========@@@@@=-----------=@@@-        "
+echo "         -@@=-    --=@@@==-=@@@@@@@@@@@@@=-------------=@@=-          "
+echo "       -@@=  --=@@@==----------=======-------------==@@@=             "
+echo "     -@@=-==@==-=@@@===------------------------==@@@@=                "
+echo "   =@@@@==-        -==@@@@@======----======@@@@@=--                   "
+echo " =@@=--                 --===@@@@@@@@@@@===--                         "
+echo
 echo "***********************************"
 echo "* RaspiBlitz Commandline"
 echo "* Here be dragons .. have fun :)"
@@ -217,7 +319,7 @@ if [ "${setupPhase}" == "done" ]; then
   if [ "${lightning}" == "lnd" ]; then
     echo "LND command line options: lncli -h"
   fi
-  if [ "${lightning}" == "cln" ]; then
+  if [ "${lightning}" == "cl" ]; then
     echo "C-Lightning command line options: lightning-cli help"
   fi
 else
@@ -225,6 +327,7 @@ else
   echo "For setup logs: cat raspiblitz.log"
   echo "or call the command 'debug' to see bigger report."
 fi
+echo "Blitz command line options: blitzhelp"
 echo "Back to menus use command: raspiblitz"
 echo
 exit 0

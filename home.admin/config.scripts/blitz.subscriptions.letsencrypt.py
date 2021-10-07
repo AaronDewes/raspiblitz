@@ -135,13 +135,13 @@ def dynu_update(domain, token, ip):
     try:
         print(response.content)
         data = json.loads(response.content)
-        apitoken = data["access_token"];
+        apitoken = data["access_token"]
     except Exception as e:
         raise BlitzError("failed parsing data", response.content, e)
     if len(apitoken) == 0:
         raise BlitzError("access_token not found", response.content)
     print("# apitoken({0})".format(apitoken))
-    apitoken = re.sub("[^0-9a-zA-Z]", "", apitoken)
+    #apitoken = re.sub("[^0-9a-zA-Z]", "", apitoken)
     print("# cleaning API token:")
     print("# apitoken({0})".format(apitoken))
 
@@ -212,7 +212,7 @@ def dynu_update(domain, token, ip):
 
 def subscriptions_new(ip, dnsservice, domain, token, target):
 
-    # check if already one subscrption exists (limit to just one)
+    # check if already one subscription exists (limit to just one)
     # https://github.com/rootzoll/raspiblitz/issues/1786
     if Path(SUBSCRIPTIONS_FILE).is_file():
         subs = toml.load(SUBSCRIPTIONS_FILE)
@@ -288,6 +288,7 @@ def subscriptions_new(ip, dnsservice, domain, token, target):
 
     # run the ACME script
     print("# Running letsencrypt ACME script ...")
+    print("# /home/admin/config.scripts/bonus.letsencrypt.sh issue-cert {0} {1} {2} {3}".format(dnsservice, domain, token, target))
     acme_result = subprocess.Popen(
         ["/home/admin/config.scripts/bonus.letsencrypt.sh", "issue-cert", dnsservice, domain, token, target],
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8')
@@ -296,13 +297,14 @@ def subscriptions_new(ip, dnsservice, domain, token, target):
     eprint(str(err))
     if out.find("error=") > -1:
         time.sleep(6)
-        raise BlitzError("letsancrypt acme failed", out)
+        raise BlitzError("letsencrypt acme failed", out)
 
     print("# OK - LETSENCRYPT DOMAIN IS READY")
     return subscription
 
 
 def subscriptions_cancel(s_id):
+    print("# subscriptions_cancel(${0})".format(s_id))
     os.system("sudo chown admin:admin {0}".format(SUBSCRIPTIONS_FILE))
     subs = toml.load(SUBSCRIPTIONS_FILE)
     new_list = []
@@ -316,6 +318,7 @@ def subscriptions_cancel(s_id):
 
     # run the ACME script to remove cert
     if removed_cert:
+        print("# /home/admin/config.scripts/bonus.letsencrypt.sh remove-cert {0} {1}".format(removed_cert['id'], removed_cert['target']))
         acme_result = subprocess.Popen(
             ["/home/admin/config.scripts/bonus.letsencrypt.sh", "remove-cert", removed_cert['id'],
              removed_cert['target']], stdout=subprocess.PIPE, stderr=subprocess.STDOUT, encoding='utf8')
@@ -353,7 +356,7 @@ def get_subscription(subscription_id):
 
 
 def get_domain_by_ip(ip):
-    # does subscriptin file exists
+    # does subscription file exists
     if Path(SUBSCRIPTIONS_FILE).is_file():
         subs = toml.load(SUBSCRIPTIONS_FILE)
     else:
@@ -385,7 +388,7 @@ def menu_make_subscription():
     # ask user for which RaspiBlitz service the bridge should be used
     choices = []
     choices.append(("DUCKDNS", "Use duckdns.org"))
-    choices.append(("DYNU", "Use dynu.com"))
+    #choices.append(("DYNU", "Use dynu.com"))
 
     d = Dialog(dialog="dialog", autowidgetsize=True)
     d.set_background_title("LetsEncrypt Subscription")
@@ -393,7 +396,7 @@ def menu_make_subscription():
         "\nChoose a free DNS service to work with:",
         choices=choices, width=60, height=10, title="Select Service")
 
-    # if user chosses CANCEL
+    # if user chooses CANCEL
     if code != d.OK:
         sys.exit(0)
 
@@ -427,8 +430,8 @@ If you havent already go to https://duckdns.org
         # check for valid input
         if len(subdomain) == 0:
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-This looks not like a valid subdomain.
-        ''', title="Unvalid Input")
+This does not look like a valid subdomain.
+        ''', title="Invalid Input")
             sys.exit(0)
 
         # enter the token
@@ -446,7 +449,7 @@ This looks not like a valid subdomain.
             token = ""
         if len(token) < 20:
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-This looks not like a valid token.
+This does not look like a valid token.
         ''', title="Invalid Input")
             sys.exit(0)
 
@@ -468,7 +471,7 @@ If you havent already go to https://dynu.com
         domain = text.strip()
         if len(domain) < 6:
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-This looks not like a valid DDNS.
+This does not look like a valid DDNS.
         ''', title="Invalid Input")
             sys.exit(0)
         os.system("clear")
@@ -490,7 +493,7 @@ Continue in your dynu.com account:
         clientid = clientid.split(' ')[0]
         if len(clientid) < 20 or len(clientid.split('-'))<2: 
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-This looks not like valid ClientID.
+This does not look like a valid ClientID.
         ''', title="Invalid Input")
             sys.exit(0)
 
@@ -503,7 +506,7 @@ This looks not like valid ClientID.
         secret = secret.split(' ')[0]
         if len(secret) < 10:
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-This looks not like valid.
+This does not look like a valid SECRET.
         ''', title="Invalid Input")
             sys.exit(0)
 
@@ -570,11 +573,11 @@ Create one first and try again.
             "\nChoose the IP2TOR subscription:",
             choices=choices, width=60, height=10, title="Select")
 
-        # if user chosses CANCEL
+        # if user chooses CANCEL
         if code != d.OK:
             sys.exit(0)
 
-        # get the slected IP2TOR bridge
+        # get the selected IP2TOR bridge
         ip2tor_select = ip2tor_subs[int(tag)]
         ip = ip2tor_select["ip"]
         serviceName = ip2tor_select["name"]
@@ -582,7 +585,7 @@ Create one first and try again.
 
     elif tag == "DYNDNS":
 
-        # the subscriptioNew method will handle acrivating the dnydns part
+        # the subscriptioNew method will handle activating the dnydns part
         ip = "dyndns"
 
     elif tag == "STATIC":
@@ -602,7 +605,7 @@ Create one first and try again.
             ip = ""
         if len(ip) == 0:
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-This looks not like a valid IP.
+This does not look like a valid IP.
         ''', title="Invalid Input")
             sys.exit(0)
 
@@ -631,7 +634,7 @@ to reach the service you wanted.
         # https://github.com/rootzoll/raspiblitz/issues/1772
         if "failed oAuth Service" in str(e):
             Dialog(dialog="dialog", autowidgetsize=True).msgbox('''
-A temporary error with the DYNU API happend:\nUnvalid OAuth Bearer Token
+A temporary error with the DYNU API happened:\nInvalid OAuth Bearer Token
 Please try again later or choose another dynamic domain service.
 ''', title="Exception on Subscription")
             sys.exit(1)

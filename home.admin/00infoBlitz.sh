@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# 00infoBlitz.sh <cln|lnd> <testnet|mainnet|signet>
+# 00infoBlitz.sh <cl|lnd> <testnet|mainnet|signet>
 
 # load code software version
 source /home/admin/_version.info
@@ -104,10 +104,10 @@ if [ -n "${btc_path}" ]; then
     btc_title="${btc_title} (${chain}net)"
 
     # get sync status
-    last_block="$($bitcoincli_alias getblockcount 2>/dev/null)"
+    headers="$(echo "${blockchaininfo}" | jq -r '.headers')"
     block_verified="$(echo "${blockchaininfo}" | jq -r '.blocks')"
-    block_diff=$(expr ${last_block} - ${block_verified})
-    blockInfo="${block_verified}/${last_block}"
+    block_diff=$(expr ${headers} - ${block_verified})
+    blockInfo="${block_verified}/${headers}"
 
     progress="$(echo "${blockchaininfo}" | jq -r '.verificationprogress')"
     sync_percentage=$(echo $progress | awk '{printf( "%.2f%%", 100 * $1)}')
@@ -160,7 +160,7 @@ fi
 webinterfaceInfo=""
 runningRTL=$(systemctl status ${netprefix}${typeprefix}RTL.service 2>/dev/null | grep -c active)
 if [ ${runningRTL} -eq 1 ]; then
-  if [ "${lightning}" == "cln" ]; then
+  if [ "${lightning}" == "cl" ]; then
     RTLHTTP=${portprefix}7000
   elif [ "${lightning}" == "lnd" ];then
     RTLHTTP=${portprefix}3000
@@ -232,12 +232,12 @@ else
 fi
 
 # LIGHTNING NETWORK
-if [ "${lightning}" == "cln" ]; then
+if [ "${lightning}" == "cl" ]; then
  ln_getInfo=$($lightningcli_alias getinfo 2>/dev/null)
  ln_baseInfo="-"
  ln_channelInfo="\n"
  ln_external="\n"
- ln_alias="$(sudo cat /home/bitcoin/.lightning/${netprefix}config | grep "^alias=*" | cut -f2 -d=)"
+ ln_alias="$(sudo cat "${CLCONF}" | grep "^alias=*" | cut -f2 -d=)"
  if [ ${#ln_alias} -eq 0 ];then
   ln_alias=$(echo "${ln_getInfo}" | grep '"alias":' | cut -d '"' -f4)
  fi
@@ -245,7 +245,7 @@ if [ "${lightning}" == "cln" ]; then
   ln_alias=${hostname}
  fi
  ln_publicColor=""
- ln_port=$(sudo cat /home/bitcoin/.lightning/${netprefix}config | grep "^bind-addr=*" | cut -f2 -d':')
+ ln_port=$(sudo cat "${CLCONF}" | grep "^bind-addr=*" | cut -f2 -d':')
  if [ ${#ln_port} -eq 0 ]; then
    ln_port=$(echo "${ln_getInfo}" | grep '"port":' | cut -d: -f2 | tail -1 | bc)
  fi
@@ -273,7 +273,7 @@ if [ "${lightning}" == "cln" ]; then
   fi
   BLOCKHEIGHT=$(echo "$blockchaininfo"|grep blocks|awk '{print $2}'|cut -d, -f1)
   CLHEIGHT=$(echo "${ln_getInfo}" | jq .blockheight)
-  if [ $BLOCKHEIGHT -eq $CLHEIGHT ];then
+  if [ "$BLOCKHEIGHT" == "$CLHEIGHT" ];then
     ln_sync=1
   else
     ln_sync=0
@@ -288,17 +288,17 @@ if [ "${lightning}" == "cln" ]; then
      fi
    else
      ln_walletbalance=0
-     cln_listfunds=$($lightningcli_alias listfunds 2>/dev/null)
-     for i in $(echo "$cln_listfunds" \
+     cl_listfunds=$($lightningcli_alias listfunds 2>/dev/null)
+     for i in $(echo "$cl_listfunds" \
       |jq .outputs[]|jq 'select(.status=="confirmed")'|grep value|awk '{print $2}'|cut -d, -f1);do
        ln_walletbalance=$((ln_walletbalance+i))
      done
-     for i in $(echo "$cln_listfunds" \
+     for i in $(echo "$cl_listfunds" \
       |jq .outputs[]|jq 'select(.status=="unconfirmed")'|grep value|awk '{print $2}'|cut -d, -f1);do
        ln_walletbalance_wait=$((ln_walletbalance_wait+i))
      done
      # ln_closedchannelbalance: "state": "ONCHAIN" funds in channels
-     for i in $(echo "$cln_listfunds" \
+     for i in $(echo "$cl_listfunds" \
       |jq .channels[]|jq 'select(.state=="ONCHAIN")'|grep channel_sat|awk '{print $2}'|cut -d, -f1);do
        ln_closedchannelbalance=$((ln_closedchannelbalance+i))
      done
@@ -307,7 +307,7 @@ if [ "${lightning}" == "cln" ]; then
      if [ "${ln_pendingonchain}" = "0" ]; then ln_pendingonchain=""; fi
      if [ ${#ln_pendingonchain} -gt 0 ]; then ln_pendingonchain="(+${ln_pendingonchain})"; fi
      # ln_channelbalance: "state": "CHANNELD_NORMAL" funds in channels
-     for i in $(echo "$cln_listfunds" \
+     for i in $(echo "$cl_listfunds" \
       |jq .channels[]|jq 'select(.state=="CHANNELD_NORMAL")'|grep channel_sat|awk '{print $2}'|cut -d, -f1);do
        ln_channelbalance=$((ln_channelbalance+i))
      done
@@ -315,7 +315,7 @@ if [ "${lightning}" == "cln" ]; then
       ln_channelbalance=0
      fi
      # ln_channelbalance_all: all funds in channels
-     for i in $(echo "$cln_listfunds" \
+     for i in $(echo "$cl_listfunds" \
       |jq .channels[]|grep channel_sat|awk '{print $2}'|cut -d, -f1);do
        ln_channelbalance_all=$((ln_channelbalance_all+i))
      done
@@ -327,9 +327,9 @@ if [ "${lightning}" == "cln" ]; then
      # - **num_active_channels** (u32): The total count of channels in normal state
      # - **num_inactive_channels** (u32): The total count of channels waiting for opening or closing 
      ln_channels_online="$(echo "${ln_getInfo}" | jq -r '.num_active_channels')" 2>/dev/null
-     cln_num_pending_channels="$(echo "${ln_getInfo}" | jq -r '.num_pending_channels')" 2>/dev/null
-     cln_num_inactive_channels="$(echo "${ln_getInfo}" | jq -r '.num_inactive_channels')" 2>/dev/null
-     ln_channels_total=$((ln_channels_online+cln_num_pending_channels+cln_num_inactive_channels))
+     cl_num_pending_channels="$(echo "${ln_getInfo}" | jq -r '.num_pending_channels')" 2>/dev/null
+     cl_num_inactive_channels="$(echo "${ln_getInfo}" | jq -r '.num_inactive_channels')" 2>/dev/null
+     ln_channels_total=$((ln_channels_online+cl_num_pending_channels+cl_num_inactive_channels))
      ln_baseInfo="${color_gray}Wallet ${ln_walletbalance} ${netprefix}sat ${ln_pendingonchain}"
      ln_peers="$(echo "${ln_getInfo}" | jq -r '.num_peers')" 2>/dev/null
      ln_channelInfo="${ln_channels_online}/${ln_channels_total} Channels ${ln_channelbalance} ${netprefix}sat${ln_channelbalance_pending}"
@@ -411,7 +411,8 @@ fi
 # show JoinMarket stats in place of the LND URI only if the Yield Generator is running
 source /home/joinmarket/joinin.conf 2>/dev/null
 if [ "${joinmarket}" = "on" ] && [ $(sudo -u joinmarket pgrep -f "python yg-privacyenhanced.py $YGwallet --wallet-password-stdin" 2>/dev/null | wc -l) -gt 2 ]; then
-  JMstats=$(mktemp 2>/dev/null)
+  trap 'rm -f "$JMstats"' EXIT
+  JMstats=$(mktemp -p /dev/shm)
   sudo -u joinmarket /home/joinmarket/info.stats.sh > $JMstats
   JMstatsL1=$(sed -n 1p < "$JMstats")
   JMstatsL2=$(sed -n 2p < "$JMstats")
@@ -429,7 +430,7 @@ ${color_yellow}
 ${color_yellow}${ln_publicColor}${ln_external}${color_gray}"
   fi
 
-if [ "${lightning}" == "cln" ];then
+if [ "${lightning}" == "cl" ];then
   LNline="C-LIGHTNING ${color_green}${ln_version}\n               ${ln_baseInfo}"
 elif [ "${lightning}"  == "lnd" ];then
   LNline="LND ${color_green}${ln_version} ${ln_baseInfo}"
@@ -442,22 +443,30 @@ else
 fi
 sleep 5
 
+LNinfo=" + Lightning Network"
+if [ "${lightning}" == "" ]; then
+  LNinfo=""  
+fi
+
 ## get uptime and current date & time
 uptime=$(uptime --pretty)
 datetime=$(date -R)
 
+stty sane
+sleep 1
 clear
+
 printf "
 ${color_yellow}
 ${color_yellow}
 ${color_yellow}
 ${color_yellow}               ${color_amber}%s ${color_green} ${ln_alias} ${upsInfo}
-${color_yellow}               ${color_gray}${network^} Fullnode + Lightning Network ${torInfo}
+${color_yellow}               ${color_gray}${network^} Fullnode${LNinfo} ${torInfo}
 ${color_yellow}        ,/     ${color_yellow}%s
 ${color_yellow}      ,'/      ${color_gray}%s
-${color_yellow}    ,' /       ${color_gray}%s, ${templine}
-${color_yellow}  ,'  /_____,  ${color_gray}Free Mem ${color_ram}${ram} ${color_gray} HDDuse ${color_hdd}%s${color_gray}
-${color_yellow} .'____    ,'  ${color_gray}SSH admin@${color_green}${local_ip}${color_gray} d${network_rx} u${network_tx}
+${color_yellow}    ,' /       ${color_gray}%s, temp %s°C %s°F
+${color_yellow}  ,'  /_____   ${color_gray}Free Mem ${color_ram}${ram} ${color_gray} HDDuse ${color_hdd}%s${color_gray}
+${color_yellow},'_____    ,'  ${color_gray}SSH admin@${color_green}${local_ip}${color_gray} d${network_rx} u${network_tx}
 ${color_yellow}      /  ,'    ${color_gray}${webinterfaceInfo}
 ${color_yellow}     / ,'      ${color_gray}${network} ${color_green}${networkVersion} ${color_gray}${chain}net ${networkConnectionsInfo}
 ${color_yellow}    /,'        ${color_gray}Blocks ${blockInfo} ${color_gray}Sync ${sync_color}${sync} %s
@@ -479,7 +488,7 @@ elif [ ${#ups} -gt 1 ] && [ "${upsStatus}" = "n/a" ]; then
   echo "UPS service activated but not running"
 else
 
-  # cheching status of apps and display if in sync or problems
+  # checking status of apps and display if in sync or problems
   appInfoLine=""
 
   # Electrum Server - electrs

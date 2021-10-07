@@ -12,9 +12,9 @@ fi
 
 # TO UNDERSTAND THE BTFS HDD LAYOUT:
 ####################################
-# 1) BLITZDATA - a BTRFS partion for all RaspiBlitz data - 30GB
+# 1) BLITZDATA - a BTRFS partition for all RaspiBlitz data - 30GB
 #    here put all files of LND, app, etc that need backup
-# 2) BLITZSTORE - a BTFRS partion for mostly Blockchain data
+# 2) BLITZSTORAGE - a BTFRS partition for mostly Blockchain data
 #    all data here can get lost and rebuild if needed (Blockchain, Indexes, etc)
 # 3) BLITZTEMP - a FAT partition just for SWAP & Exchange - 34GB
 #    used for SWAP file and easy to read from Win32/MacOS for exchange
@@ -82,7 +82,13 @@ if [ "$1" = "status" ]; then
     # will then be used to offer formatting and permanent mounting
     hdd=""
     sizeDataPartition=0
-    OSPartition=$(sudo df /usr | grep dev | cut -d " " -f 1 | sed "s/\/dev\///g")
+    OSPartition=$(sudo df /usr 2>/dev/null | grep dev | cut -d " " -f 1 | sed "s#/dev/##g")
+    # detect boot partition on UEFI systems
+    bootPartition=$(sudo df /boot/efi 2>/dev/null | grep dev | cut -d " " -f 1 | sed "s#/dev/##g")
+    if [ ${#bootPartition} -eq 0 ]; then
+      # for non UEFI
+      bootPartition=$(sudo df /boot 2>/dev/null | grep dev | cut -d " " -f 1 | sed "s#/dev/##g")
+    fi
     lsblk -o NAME,SIZE -b | grep -P "[s|vn][dv][a-z][0-9]?" > .lsblk.tmp
     while read line; do
 
@@ -110,11 +116,12 @@ if [ "$1" = "status" ]; then
       #echo "# testpartitioncount($testpartitioncount)"
       #echo "# testpartitioncount(${testpartitioncount})"
       #echo "# OSPartition(${OSPartition})"
+      #echo "# bootPartition(${bootPartition})"
       #echo "# hdd(${hdd})"
 
       if [ $testpartitioncount -gt 0 ]; then
-         # if a partition was found - make sure to skip OS partition
-         if [ "$testpartition" != "$OSPartition" ]; then
+         # if a partition was found - make sure to skip the OS and boot partitions
+         if [ "${testpartition}" != "${OSPartition}" ] && [ "${testpartition}" != "${bootPartition}" ]; then
             # make sure to use the biggest
             if [ ${testsize} -gt ${sizeDataPartition} ]; then
                sizeDataPartition=${testsize}
@@ -124,14 +131,14 @@ if [ "$1" = "status" ]; then
          fi
       else
 
-         # default hdd set, when there is no OSpartition and there might ne no partitions at all
+         # default hdd set, when there is no OSpartition and there might be no partitions at all
          if [ "${OSPartition}" = "root" ] && [ "${hdd}" = "" ] && [ "${testdevice}" != "" ]; then
           hdd="${testdevice}"
          fi
 
 	       # make sure to use the biggest
          if [ ${testsize} -gt ${sizeDataPartition} ]; then
-	        # Partion to be created is smaller than disk so this is not correct (but close)
+	        # Partition to be created is smaller than disk so this is not correct (but close)
             sizeDataPartition=$(sudo fdisk -l /dev/$testdevice | grep GiB | cut -d " " -f 5)
             hddDataPartition="${testdevice}1"
             hdd="${testdevice}"
@@ -272,13 +279,12 @@ if [ "$1" = "status" ]; then
           # check if its another fullnode implementation data disk
           hddGotMigrationData=""
           if [ "${hddFormat}" = "ext4" ]; then
-            # check for umbrel
+            # check for other node implementations
             isUmbrelHDD=$(sudo ls /mnt/storage/umbrel/info.json 2>/dev/null | grep -c '.json')
+            isMyNodeHDD=$(sudo ls /mnt/storage/mynode/bitcoin/bitcoin.conf 2>/dev/null | grep -c '.conf')
             if [ ${isUmbrelHDD} -gt 0 ]; then
               hddGotMigrationData="umbrel"
-            fi
-            isMyNodeHDD=$(sudo ls /mnt/storage/mynode/bitcoin/bitcoin.conf 2>/dev/null | grep -c '.conf')
-            if [ ${isMyNodeHDD} -gt 0 ]; then
+            elif [ ${isMyNodeHDD} -gt 0 ]; then
               hddGotMigrationData="mynode"
             fi
           else
@@ -383,8 +389,18 @@ if [ "$1" = "status" ]; then
     fi
     echo "hddAdapterUSB='${hddAdapter}'"
 
-    # check if HDD ADAPTER is on UASP WHITELIST (tested devices)
     hddAdapterUSAP=0
+    
+    # check if user wants to force UASP on
+    if [ -f "/boot/uasp.force" ]; then
+      hddAdapterUSAP=1
+      echo "uaspForced=1"
+    fi
+    if [ $(cat /mnt/hdd/raspiblitz.conf 2>/dev/null | grep -c "forceUasp=on") -eq 1 ]; then
+      hddAdapterUSAP=1
+    fi
+
+    # check if HDD ADAPTER is on UASP WHITELIST (tested devices)
     if [ "${hddAdapter}" == "174c:55aa" ]; then
       # UGREEN 2.5" External USB 3.0 Hard Disk Case with UASP support
       hddAdapterUSAP=1
@@ -418,11 +434,11 @@ if [ "$1" = "status" ]; then
     for disk in $(lsblk -o NAME,TYPE | grep "disk" | awk '$1=$1' | cut -d " " -f 1)
     do
       devMounted=$(lsblk -o MOUNTPOINT,NAME | grep "$disk" | grep -c "^/")
-      # is raid candidate when not mounted and not the data drive cadidate (hdd/ssd)
-      if [ ${devMounted} -eq 0 ] && [ "${disk}" != "${hdd}" ] && [ "${hdd}" != "" ]; then
+      # is raid candidate when not mounted and not the data drive candidate (hdd/ssd)
+      if [ ${devMounted} -eq 0 ] && [ "${disk}" != "${hdd}" ] && [ "${hdd}" != "" ] && [ "${disk}" != "" ]; then
         sizeBytes=$(lsblk -o NAME,SIZE -b | grep "^${disk}" | awk '$1=$1' | cut -d " " -f 2)
         sizeGigaBytes=$(echo "scale=0; ${sizeBytes}/1024/1024/1024" | bc -l)
-        vedorname=$(lsblk -o NAME,VENDOR | grep "^${disk}" | awk '$1=$1' | cut -d " " -f 2)
+        vedorname=$(lsblk -o NAME,VENDOR | grep "^${disk}" | awk '$1=$1' | cut -d " " -f 2 | sed 's/[^a-zA-Z0-9]//g')
         mountoption="${disk} ${sizeGigaBytes} GB ${vedorname}"
         echo "raidCandidate[${drivecounter}]='${mountoption}'"
         drivecounter=$(($drivecounter +1))
@@ -447,7 +463,7 @@ fi
 # FORMAT EXT4 or BTRFS
 ######################
 
-# check basics for formating
+# check basics for formatting
 if [ "$1" = "format" ]; then
   
   # check valid format
@@ -465,7 +481,7 @@ if [ "$1" = "format" ]; then
   hdd=$3
   if [ ${#hdd} -eq 0 ]; then
     >&2 echo "# missing valid third parameter as the device (like 'sda')"
-    >&2 echo "# run 'status' to see cadidate devices"
+    >&2 echo "# run 'status' to see candidate devices"
     echo "error='missing parameter'"
     exit 1
   fi
@@ -631,7 +647,7 @@ if [ "$1" = "format" ]; then
        fi
      done
 
-     # setting fsk check intervall to 1
+     # setting fsk check interval to 1
      # see https://github.com/rootzoll/raspiblitz/issues/360#issuecomment-467567572
      if [ $ext4IsPartition -eq 0 ]; then
         sudo tune2fs -c 1 /dev/${hdd}1
@@ -643,7 +659,7 @@ if [ "$1" = "format" ]; then
      exit 0
   fi
 
-  # formatting new: BTRFS layout - this consists of 3 volmunes:
+  # formatting new: BTRFS layout - this consists of 3 volumes:
   if [ "$2" = "btrfs" ]; then
 
      # prepare temp mount point
@@ -667,6 +683,7 @@ if [ "$1" = "format" ]; then
        >&2 echo "# waiting until formatted drives gets available"
        sleep 2
        sync
+       sudo parted -l
        loopdone=$(lsblk -o NAME,LABEL | grep -c BLITZDATA)
        loopcount=$(($loopcount +1))
        if [ ${loopcount} -gt 60 ]; then
@@ -707,6 +724,7 @@ if [ "$1" = "format" ]; then
        >&2 echo "# waiting until formatted drives gets available"
        sleep 2
        sync
+       sudo parted -l
        loopdone=$(lsblk -o NAME,LABEL | grep -c BLITZSTORAGE)
        loopcount=$(($loopcount +1))
        if [ ${loopcount} -gt 60 ]; then
@@ -727,7 +745,7 @@ if [ "$1" = "format" ]; then
      sudo btrfs subvolume create WORKINGDIR
      cd && sudo umount /tmp/btrfs
 
-     >&2 echo "# Creating the FAT32 partion"
+     >&2 echo "# Creating the FAT32 partition"
      sudo parted -s -a optimal -- /dev/${hdd} mkpart primary fat32 -34GiB 100% 1>/dev/null
      sync && sleep 3
      win=$(lsblk -o NAME | grep -c ${hdd}3)
@@ -746,6 +764,7 @@ if [ "$1" = "format" ]; then
        >&2 echo "# waiting until formatted drives gets available"
        sleep 2
        sync
+       sudo parted -l
        loopdone=$(lsblk -o NAME,LABEL | grep -c BLITZTEMP)
        loopcount=$(($loopcount +1))
        if [ ${loopcount} -gt 60 ]; then
@@ -908,7 +927,7 @@ if [ "$1" = "fstab" ]; then
       sync
     done
 
-    # get user and grouid if usr/group bitcoin
+    # get user and groupid if usr/group bitcoin
     bitcoinUID=$(id -u bitcoin)
     bitcoinGID=$(id -g bitcoin)
 
@@ -978,7 +997,7 @@ if [ "$1" = "raid" ]; then
      >&2 echo "# RAID - Removing raid drive to RaspiBlitz data drive"  
   else
      >&2 echo "# possible 2nd parameter is 'on' or 'off'"  
-     echo "error='unkown parameter'"
+     echo "error='unknown parameter'"
      exit 1
   fi
 
@@ -992,7 +1011,7 @@ if [ "$1" = "raid" ] && [ "$2" = "on" ]; then
   # second parameter - like its named: lsblk
   usbdev=$3
   if [ ${#usbdev} -eq 0 ]; then
-    >&2 echo "# FAIL third parameter is missing with the name of the usb device to add"
+    >&2 echo "# FAIL third parameter is missing with the name of the USB device to add"
     echo "error='missing parameter'"
     exit 1
   fi
@@ -1034,7 +1053,7 @@ if [ "$1" = "raid" ] && [ "$2" = "on" ]; then
     exit 1
   fi
 
-  # remove all partions from device
+  # remove all partitions from device
   for v_partition in $(parted -s /dev/${usbdev} print|awk '/^ / {print $1}')
   do
    sudo parted -s /dev/${usbdev} rm ${v_partition}
@@ -1264,7 +1283,7 @@ if [ "$1" = "tempmount" ]; then
     
   elif [ "${hddFormat}" = "btrfs" ]; then
 
-    # get user and grouid if usr/group bitcoin
+    # get user and groupid if usr/group bitcoin
     bitcoinUID=$(id -u bitcoin)
     bitcoinGID=$(id -g bitcoin)
 
@@ -1427,7 +1446,7 @@ if [ "$1" = "link" ]; then
   echo "The /mnt/hdd/app-data directory should be used by additional/optional apps and services installed to the RaspiBlitz for their data that should survive an import/export/backup. Data that can be reproduced (indexes, etc.) should be stored in app-storage." > ./README.txt
   sudo mv ./README.txt /mnt/hdd/app-data/README.txt 2>/dev/null
 
-  echo "The /mnt/hdd/app-storage directrory should be used by additional/optional apps and services installed to the RaspiBlitz for their non-critical and reproducable data (indexes, public blockchain, etc.) that does not need to survive an an import/export/backup. Data is critical should be in app-data." > ./README.txt
+  echo "The /mnt/hdd/app-storage directory should be used by additional/optional apps and services installed to the RaspiBlitz for their non-critical and reproducible data (indexes, public blockchain, etc.) that does not need to survive an an import/export/backup. Data is critical should be in app-data." > ./README.txt
   sudo mv ./README.txt /mnt/hdd/app-storage/README.txt 2>/dev/null
 
   >&2 echo "# OK - all symbolic links build"
@@ -1511,8 +1530,8 @@ if [ "$1" = "swap" ]; then
     exit 0
 
   else
-    >&2 echo "# FAIL unkown second parameter - try 'on' or 'off'"
-    echo "error='unkown parameter'"
+    >&2 echo "# FAIL unknown second parameter - try 'on' or 'off'"
+    echo "error='unknown parameter'"
     exit 1
   fi
 
@@ -1557,7 +1576,7 @@ if [ "$1" = "clean" ]; then
         sudo dphys-swapfile uninstall 1>/dev/null
         sync
 
-        # for all other data shred files selectivly
+        # for all other data shred files selectively
         for entry in $(ls -A1 /mnt/hdd)
         do
 
@@ -1571,7 +1590,7 @@ if [ "$1" = "clean" ]; then
             fi
           fi
 
-          # decide when to shredd or just delete - just delete unsensitive data
+          # decide when to shred or just delete - just delete nonsensitive data
           if [ "${entry}" = "torrent" ] || [ "${entry}" = "app-storage" ]; then
             whenDeleteSchredd=0
           fi
@@ -1582,7 +1601,7 @@ if [ "$1" = "clean" ]; then
           if [ ${isBTRFS} -eq 1 ] && [ "${entry}" != "temp" ]; then
             whenDeleteSchredd=0
           fi
-          # on SSDs never shredd
+          # on SSDs never shred
           # https://www.davescomputers.com/securely-deleting-files-solid-state-drive/
           if [ "${isSSD}" == "1" ]; then
             whenDeleteSchredd=0
@@ -1594,7 +1613,7 @@ if [ "$1" = "clean" ]; then
             if [ -d "/mnt/hdd/$entry" ]; then
               if [ ${whenDeleteSchredd} -eq 1 ]; then
                 >&2 echo "# shredding DIR  : ${entry}"
-                sudo srm -r /mnt/hdd/$entry
+                sudo srm -lr /mnt/hdd/$entry
               else
                 >&2 echo "# deleting DIR  : ${entry}"
                 sudo rm -r /mnt/hdd/$entry
@@ -1602,7 +1621,7 @@ if [ "$1" = "clean" ]; then
             else
               if [ ${whenDeleteSchredd} -eq 1 ]; then
                 >&2 echo "# shredding FILE : ${entry}"
-                sudo srm /mnt/hdd/$entry
+                sudo srm -l /mnt/hdd/$entry
               else
                 >&2 echo "# deleting FILE : ${entry}"
                 sudo rm /mnt/hdd/$entry
@@ -1623,7 +1642,7 @@ if [ "$1" = "clean" ]; then
             echo "Cleaning Blockchain: ${chain}"
 
             # take extra care if wallet.db exists
-            sudo srm /mnt/hdd/${chain}/wallet.db 2>/dev/null
+            sudo srm -v /mnt/hdd/${chain}/wallet.db 2>/dev/null
 
             # the rest just delete (keep blocks and chainstate and testnet3)
             for entry in $(ls -A1 /mnt/hdd/${chain} 2>/dev/null)
@@ -1678,8 +1697,8 @@ if [ "$1" = "clean" ]; then
       exit 1
 
     else
-      >&2 echo "# FAIL unkown third parameter try '-total' or '-keepblockchain'"
-      echo "error='unkown parameter'"
+      >&2 echo "# FAIL unknown third parameter try '-total' or '-keepblockchain'"
+      echo "error='unknown parameter'"
       exit 1    
     fi
 
@@ -1737,8 +1756,8 @@ if [ "$1" = "clean" ]; then
     exit 1
   
   else
-    >&2 echo "# FAIL unkown second parameter - try 'all','blockchain' or 'temp'"
-    echo "error='unkown parameter'"
+    >&2 echo "# FAIL unknown second parameter - try 'all','blockchain' or 'temp'"
+    echo "error='unknown parameter'"
     exit 1
   fi
 
@@ -1774,7 +1793,7 @@ if [ "$1" = "uasp-fix" ]; then
       echo "# Already UASP deactivated for ${hddAdapterUSB}"
       echo "neededReboot=0"
     fi
-  else 
+  else
     echo "# Skipping UASP deactivation ... cmdlineExists(${cmdlineExists}) hddAdapterUSB(${hddAdapterUSB}) hddAdapterUSAP(${hddAdapterUSAP})"
     echo "neededReboot=0"
   fi

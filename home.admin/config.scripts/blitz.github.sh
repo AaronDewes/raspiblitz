@@ -36,13 +36,13 @@ install=0
 wantedBranch="$1"
 wantedGitHubUser="$2"
 if [ "${wantedBranch}" = "-run" ]; then
-  # "-run" ist just used by "patch" command and will ignore all further parameter
+  # "-run" its just used by "patch" command and will ignore all further parameter
   wantedBranch="${activeBranch}"
   wantedGitHubUser="${activeGitHubUser}"
   # detect if running in vagrant VM
   vagrant=$(df | grep -c "/vagrant")
   if [ "$2" = "git" ]; then 
-    echo "# forcing guthub over vagrant sync"
+    echo "# forcing github over vagrant sync"
     vagrant=0
   fi
 fi
@@ -161,6 +161,7 @@ sudo rm -r /home/admin/config.scripts
 sudo -u admin cp -r -f /home/admin/raspiblitz/home.admin/* /home/admin
 sudo -u admin chmod -R +x /home/admin/config.scripts
 sudo -u admin chmod -R +x /home/admin/setup.scripts
+sudo -u admin chmod +x /home/admin/*.sh
 echo "# ******************************************"
 
 echo "# Syncing Webcontent .."

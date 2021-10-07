@@ -3,8 +3,8 @@
 
 [Unit]
 Description=RaspiBlitz Background Monitoring Service
-Wants=bootstrap.service
-After=bootstrap.service
+Wants=network.target
+After=network.target
 
 # for use with sendmail alert (coming soon)
 #OnFailure=systemd-sendmail@%n
@@ -18,12 +18,6 @@ Restart=always
 TimeoutSec=10
 RestartSec=10
 StandardOutput=journal
-
-# Hardening measures
-PrivateTmp=true
-ProtectSystem=full
-NoNewPrivileges=true
-PrivateDevices=true
 
 [Install]
 WantedBy=multi-user.target

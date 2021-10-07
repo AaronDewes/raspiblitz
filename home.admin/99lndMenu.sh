@@ -10,12 +10,13 @@ source <(/home/admin/config.scripts/internet.sh status local)
 
 source <(/home/admin/config.scripts/network.aliases.sh getvars lnd $1)
 
+# make sure lnd wallet is unlocked
+/home/admin/config.scripts/lnd.unlock.sh chain-unlock ${CHAIN}
+
 # BASIC MENU INFO
-HEIGHT=13
 WIDTH=64
-CHOICE_HEIGHT=7
 BACKTITLE="RaspiBlitz"
-TITLE="Lightning Options"
+TITLE=" LND Lightning Options (${CHAIN}) "
 MENU=""
 OPTIONS=()
 
@@ -29,27 +30,24 @@ if [ "${chain}" = "main" ]; then
   OPTIONS+=(lnbalance "Detailed Wallet Balances")
   OPTIONS+=(lnchannels "Lightning Channel List")
   OPTIONS+=(lnfwdreport "Lightning Forwarding Events Report")
-  HEIGHT=$((HEIGHT+3))
-  CHOICE_HEIGHT=$((CHOICE_HEIGHT+3))  
 fi
 
 OPTIONS+=(NAME "Change Name/Alias of Node")
 
 openChannels=$($lncli_alias listchannels 2>/dev/null | jq '.[] | length')
 if [ ${#openChannels} -gt 0 ] && [ ${openChannels} -gt 0 ]; then
-OPTIONS+=(SUEZ "Visualize channels")
-OPTIONS+=(CLOSEALL "Close all open Channels on $CHAIN")
-  HEIGHT=$((HEIGHT+2))
-  CHOICE_HEIGHT=$((CHOICE_HEIGHT+2))  
+  OPTIONS+=(SUEZ "Visualize channels")
+  OPTIONS+=(CLOSEALL "Close all open Channels on $CHAIN")
 fi
 
 OPTIONS+=(CASHOUT "Withdraw all funds from LND on $CHAIN")
-if [ ${#LNdefault} -gt 0 ]&&[ $LNdefault = cln ];then
+
+if [ "${lightning}" != "lnd" ]; then
   OPTIONS+=(SWITCHLN  "Use LND as default")
-  HEIGHT=$((HEIGHT+1))
-  CHOICE_HEIGHT=$((CHOICE_HEIGHT+1))
 fi  
 
+CHOICE_HEIGHT=$(("${#OPTIONS[@]}/2+1"))
+HEIGHT=$((CHOICE_HEIGHT+6))
 CHOICE=$(dialog --clear \
                 --backtitle "$BACKTITLE" \
                 --title "$TITLE" \
@@ -138,8 +136,8 @@ case $CHOICE in
       clear 
       echo
       # setting value in raspi blitz config
-      sudo sed -i "s/^LNdefault=.*/LNdefault=lnd/g" /mnt/hdd/raspiblitz.conf
-      echo "# OK - LNdefault=lnd is set in /mnt/hdd/raspiblitz.conf"
+      sudo sed -i "s/^lightning=.*/lightning=lnd/g" /mnt/hdd/raspiblitz.conf
+      echo "# OK - lightning=lnd is set in /mnt/hdd/raspiblitz.conf"
       echo
       echo "Press ENTER to return to main menu."
       read key

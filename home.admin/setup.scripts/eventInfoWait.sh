@@ -3,8 +3,8 @@
 
 # get basic system information
 # these are the same set of infos the WebGUI dialog/controler has
-source /home/admin/_version.info
-source /home/admin/raspiblitz.info
+source /home/admin/_version.info 2>/dev/null
+source /home/admin/raspiblitz.info 2>/dev/null
 
 # 1st PARAMETER: eventID
 # fixed ID string for a certain event
@@ -38,12 +38,18 @@ backtitle="RaspiBlitz ${codeVersion} / ${eventID} / ${localip}"
 # 1) WELL DEFINED EVENTS
 ################################################
 
-if [ "${eventID}" == "starting" ] || [ "${eventID}" == "system-init" ] || [ "${eventID}" == "ready" ]; then
+if [ "${eventID}" == "starting" ] || [ "${eventID}" == "system-init" ]; then
 
     dialog --backtitle "${backtitle}" --cr-wrap --infobox "
 Starting RaspiBlitz
 Please wait ...
 " 6 24
+
+elif [ "${eventID}" == "ready" ]; then
+
+    dialog --backtitle "${backtitle}" --cr-wrap --infobox "
+Please wait ...
+" 5 20
 
 elif [ "${eventID}" == "waitsync" ]; then
 
@@ -51,6 +57,18 @@ elif [ "${eventID}" == "waitsync" ]; then
 Preparing Blockchain Sync
 Please wait ...
 " 6 30
+
+elif [ "${eventID}" == "reboot" ] && [ "${contentString}" == "finalsetup" ]; then
+
+    dialog --backtitle "${backtitle}" --cr-wrap --infobox "
+Final Setup Reboot
+" 5 23
+
+elif [ "${eventID}" == "reboot" ] && [ "${contentString}" != "" ]; then
+
+    dialog --backtitle "${backtitle}" --cr-wrap --infobox "
+Rebooting (${contentString})
+" 5 35
 
 elif [ "${eventID}" == "reboot" ]; then
 
@@ -75,9 +93,10 @@ SYSTEM RAN INTO AN ERROR:
 ${contentString}
 
 Please report to the Raspiblitz GitHub
-Use CTRL+C to exit to terminal.
-For shutdown use command: off
-" 10 50
+CTRL+C to exit to terminal for commands:
+cat raspiblitz.log --> see error log
+off --> shutdown system
+" 11 50
 
 elif [ "${eventID}" == "provision" ] || [ "${eventID}" == "recovering" ]; then
 
@@ -127,6 +146,15 @@ ssh admin@${localip}
 Use your Password A
 " 7 41
 
+
+elif [ "${eventID}" == "walletlocked" ] && [ "${mode}" == "lcd" ]; then
+
+    dialog --backtitle "${backtitle}" --cr-wrap --infobox "
+Lightning Wallet Locked
+ssh admin@${localip}
+Use your Password A
+" 7 41
+
 elif [ "${eventID}" == "copytarget" ] && [ "${mode}" == "lcd" ]; then
 
     dialog --backtitle "${backtitle}" --cr-wrap --infobox "
@@ -149,11 +177,16 @@ elif [ "${eventID}" == "waitsetup" ] && [ "${mode}" == "lcd" ]; then
     if [ "${setupPhase}" == "setup" ] || [ "${setupPhase}" == "update" ] || [ "${setupPhase}" == "recovery" ] || [ "${setupPhase}" == "migration" ]; then
 
         # custom backtitle for this dialog
-        backtitle="RaspiBlitz ${codeVersion} / ${setupPhase}"
+        backtitle="RaspiBlitz ${codeVersion}"
+
+        # display if RAM size
+        backtitle="${backtitle} / ${ramGB}GB RAM"
 
         # display if HDD conatains blockhain or not
         if [ "${hddBlocksBitcoin}" == "1" ] || [ "${hddBlocksLitecoin}" == "1" ]; then
-            backtitle="${backtitle} / (pre-synced)"
+            backtitle="${backtitle} / ${hddGigaBytes}GB (pre-synced)"
+        else
+            backtitle="${backtitle} / ${hddGigaBytes}GB HDD"
         fi
 
         # custom welcomeline for this dialog
@@ -271,6 +304,14 @@ elif [ "${eventID}" == "errorHDD" ]; then
 PROBLEM: FAILED HDD/SSD
 Detailed Error Message:
 ${contentString}
+" 7 35
+
+elif [ "${eventID}" == "errorNetwork" ]; then
+
+    dialog --backtitle "${backtitle}" --cr-wrap --infobox "
+PROBLEM: LOST NETWORK
+Shutting down ... 
+Manual restart needed.
 " 7 35
 
 elif [ "${eventID}" == "sdtoosmall" ]; then

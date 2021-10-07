@@ -87,6 +87,8 @@ if [ "$1" = "1" ] || [ "$1" = "on" ]; then
   # password C needs to be stored on RaspiBlitz
   echo "# storing password for root in /root/lnd.autounlock.pwd"
   sudo sh -c "echo \"${passwordC}\" > /root/lnd.autounlock.pwd"
+  sudo chmod 660 /root/lnd.autounlock.pwd
+  sudo chown root:sudo /root/lnd.autounlock.pwd
 
   echo "# Auto-Unlock is now ON"
   echo "# NOTE: you may need to reconnect mobile/external wallets (macaroon/tls)"
@@ -100,7 +102,7 @@ if [ "$1" = "0" ] || [ "$1" = "off" ]; then
   # setting value in raspi blitz config
   sudo sed -i "s/^autoUnlock=.*/autoUnlock=off/g" /mnt/hdd/raspiblitz.conf
 
-  # delete password C securly
+  # delete password C securely
   echo "# shredding password on for RaspiBlitz Auto-Unlock"
   sudo shred -u /root/lnd.autounlock.pwd 2>/dev/null
 

@@ -112,7 +112,7 @@ You have no active or inactive subscriptions.
         "\nYou have the following subscriptions - select for details:",
         choices=choices, cancel_label="Back", width=65, height=15, title="My Subscriptions")
 
-    # if user chosses CANCEL
+    # if user chooses CANCEL
     if code != d.OK:
         return
 
@@ -234,7 +234,7 @@ def main():
         "\nCheck existing subscriptions or create new:",
         choices=choices, width=50, height=10, title="Subscription Management")
 
-    # if user chosses CANCEL
+    # if user chooses CANCEL
     if code != d.OK:
         sys.exit(0)
 
@@ -271,7 +271,7 @@ def main():
     The IP2TOR service just makes sense if you run
     your RaspiBlitz behind TOR.
             ''', title="Info")
-            sys.exit(1)
+            sys.exit(0)
 
         os.system("clear")
         print("please wait ..")
@@ -311,8 +311,12 @@ def main():
 
         # check if Sphinx-Relay is installed
         sphinx_relay = False
-        status_data = subprocess.run(['/home/admin/config.scripts/bonus.sphinxrelay.sh', 'status'],
-                                     stdout=subprocess.PIPE).stdout.decode('utf-8').strip()
+        try:
+            status_data = subprocess.run(['/home/admin/config.scripts/bonus.sphinxrelay.sh', 'status'], 
+                stdout=subprocess.PIPE, timeout=10).stdout.decode('utf-8').strip()
+        except Exception as e:
+            print(e)
+            
         if status_data.find("installed=1") > -1:
             sphinx_relay = True
 
@@ -334,7 +338,7 @@ def main():
             "\nChoose RaspiBlitz Service to create Bridge for:",
             choices=choices, width=60, height=10, title="Select Service")
 
-        # if user chosses CANCEL
+        # if user chooses CANCEL
         if code != d.OK:
             sys.exit(0)
 
@@ -405,7 +409,7 @@ def main():
             except Exception as e:
                 print(e)
                 time.sleep(3)
-                sys.exit(1)
+                sys.exit(0)
 
         # run creating a new IP2TOR subscription
         os.system("clear")
@@ -416,7 +420,7 @@ def main():
 
         # action after possibly new created bride
         if service_name == SERVICE_SPHINX:
-            print("# restarting services to pickup new public url (please wait) ...")
+            print("# restarting services to pickup new public URL (please wait) ...")
             os.system("sudo systemctl restart sphinxrelay")
             time.sleep(8)
 

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # LOGFILE - store debug logs of bootstrap
-logFile="/home/admin/raspiblitz.log"
+logFile="/home/admin/raspiblitz.provision-update.log"
 
 # INFOFILE - state data from bootstrap
 infoFile="/home/admin/raspiblitz.info"
@@ -14,7 +14,7 @@ setupFile="/var/cache/raspiblitz/temp/raspiblitz.setup"
 source ${setupFile}
 
 # log header
-echo "" >> ${logFile}
+echo "" > ${logFile}
 echo "###################################" >> ${logFile}
 echo "# _provision.update.sh" >> ${logFile}
 echo "###################################" >> ${logFile}
@@ -150,11 +150,11 @@ fi
 
 # start network service
 echo ""
-echo "*** Start ${network} ***" >> ${logFile}
+echo "*** Start ${network} (UPDATE) ***" >> ${logFile}
 sudo sed -i "s/^message=.*/message='Blockchain Testrun'/g" ${infoFile}
 echo "- This can take a while .." >> ${logFile}
+sudo chown -R bitcoin:bitcoin /mnt/hdd/${network} >>${logFile} 2>&1
 sudo cp /home/admin/assets/${network}d.service /etc/systemd/system/${network}d.service
-#sudo chmod +x /etc/systemd/system/${network}d.service
 sudo systemctl daemon-reload >> ${logFile}
 sudo systemctl enable ${network}d.service >> ${logFile}
 sudo systemctl start ${network}d.service >> ${logFile}
@@ -167,19 +167,21 @@ if [ "${lightning}" == "lnd" ]; then
   sed -i "6s/.*/After=${network}d.service/" /home/admin/assets/lnd.service >> ${logFile} 2>&1
   sudo cp /home/admin/assets/lnd.service /etc/systemd/system/lnd.service >> ${logFile} 2>&1
 
+  # convert old keysend by lndExtraParameter to raspiblitz.conf setting (will be enforced by lnd.check.sh prestart) since 1.7.1
+  if [ "${lndExtraParameter}" == "--accept-keysend" ]; then
+    echo "# MIGRATION KEYSEND from lndExtraParameter --> raspiblitz.conf" >> ${logFile}
+    sudo sed -i '/lndKeysend=.*/d' /mnt/hdd/raspiblitz.conf
+    echo "lndKeysend=on" >> /mnt/hdd/raspiblitz.conf
+    sudo sed -i "/^lndExtraParameter=/d" /mnt/hdd/raspiblitz.conf 2>/dev/null
+  fi
+
   # if old lnd.conf exists ...
   configExists=$(sudo ls /mnt/hdd/lnd/lnd.conf | grep -c '.conf')
   if [ ${configExists} -eq 1 ]; then
 
-    # remove RPC user & pass from lnd.conf ... since v1.7
-    # https://github.com/rootzoll/raspiblitz/issues/2160
-    echo "- #2160 lnd.conf --> make sure contains no RPC user/pass for bitcoind" >> ${logFile}
-    sudo sed -i '/^\[Bitcoind\]/d' /mnt/hdd/lnd/lnd.conf
-    sudo sed -i '/^bitcoind.rpchost=/d' /mnt/hdd/lnd/lnd.conf
-    sudo sed -i '/^bitcoind.rpcpass=/d' /mnt/hdd/lnd/lnd.conf
-    sudo sed -i '/^bitcoind.rpcuser=/d' /mnt/hdd/lnd/lnd.conf
-    sudo sed -i '/^bitcoind.zmqpubrawblock=/d' /mnt/hdd/lnd/lnd.conf
-    sudo sed -i '/^bitcoind.zmqpubrawtx=/d' /mnt/hdd/lnd/lnd.conf
+    # make sure correct file permisions are set
+    sudo chown bitcoin:bitcoin /mnt/hdd/lnd/lnd.conf
+    sudo chmod 664 /mnt/hdd/lnd/lnd.conf
 
     # make sure additional values are added to [Application Options] since v1.7
     echo "- lnd.conf --> checking additional [Application Options] since v1.7" >> ${logFile}
@@ -249,17 +251,16 @@ if [ "${lightning}" == "lnd" ]; then
   sudo systemctl enable lnd >> ${logFile}
   sudo systemctl start lnd >> ${logFile}
 
-
-elif [ "${lightning}" == "cln" ]; then
+elif [ "${lightning}" == "cl" ]; then
 
   echo "Install C-lightning on update" >> ${logFile}
   sudo sed -i "s/^message=.*/message='C-Lightning Install'/g" ${infoFile}
-  sudo /home/admin/config.scripts/cln.install.sh on mainnet >> ${logFile}
+  sudo /home/admin/config.scripts/cl.install.sh on mainnet >> ${logFile}
   sudo sed -i "s/^message=.*/message='C-Lightning Setup'/g" ${infoFile}
 
 elif [ "${lightning}" == "none" ]; then
 
-  echo "No Lightnig" >> ${logFile}
+  echo "No Lightning" >> ${logFile}
 
 else
 

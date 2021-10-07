@@ -6,9 +6,9 @@ function help(){
   echo "Replicates the lightningd.sqlite3 database on the SDcard"
   echo
   echo "Usage:"
-  echo "cln-plugin.backup.sh [on|off] [testnet|mainnet|signet]"
-  echo "cln-plugin.backup.sh [restore] [testnet|mainnet|signet] [force]"
-  echo "cln-plugin.backup.sh [backup-compact] [testnet|mainnet|signet]"
+  echo "cl-plugin.backup.sh [on|off] [testnet|mainnet|signet]"
+  echo "cl-plugin.backup.sh [restore] [testnet|mainnet|signet] [force]"
+  echo "cl-plugin.backup.sh [backup-compact] [testnet|mainnet|signet]"
   echo
   echo "https://github.com/lightningd/plugins/tree/master/backup"
   echo
@@ -20,14 +20,14 @@ if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "-help" ];then
   help
 fi
 
-source <(/home/admin/config.scripts/network.aliases.sh getvars cln $2)
+source <(/home/admin/config.scripts/network.aliases.sh getvars cl $2)
 
 plugin="backup"
-plugindir="/home/bitcoin/cln-plugins-available/plugins"
+plugindir="/home/bitcoin/cl-plugins-available/plugins"
 
 function install() {
   if [ ! -f "${plugindir}/${plugin}/${plugin}.py" ]; then
-    cd /home/bitcoin/cln-plugins-available || exit 1
+    cd /home/bitcoin/cl-plugins-available || exit 1
     sudo -u bitcoin git clone https://github.com/lightningd/plugins.git
   fi
   
@@ -40,9 +40,9 @@ function install() {
       fi
     sudo chmod +x ${plugindir}/${plugin}/${plugin}.py
     # symlink to the default plugin dir
-    if [ ! -L /home/bitcoin/${netprefix}cln-plugins-enabled/backup.py ];then
+    if [ ! -L /home/bitcoin/${netprefix}cl-plugins-enabled/backup.py ];then
       sudo ln -s ${plugindir}/backup/backup.py \
-                 /home/bitcoin/${netprefix}cln-plugins-enabled/
+                 /home/bitcoin/${netprefix}cl-plugins-enabled/
     fi
   else
     echo "# The ${plugin} plugin is already loaded"
@@ -64,14 +64,15 @@ if [ $1 = on ];then
             /home/bitcoin/${netprefix}lightningd.sqlite3.backup.${now} || exit 1
   fi
 
-  # init plugin
-  if ! sudo ls /home/bitcoin/.lightning/${CLNETWORK}/backup.lock; then
-    # https://github.com/lightningd/plugins/tree/master/backup#setup
-    echo "# Initialize the backup plugin"
-    sudo -u bitcoin ${plugindir}/backup/backup-cli init\
-      --lightning-dir /home/bitcoin/.lightning/${CLNETWORK} \
-      file:///home/bitcoin/${netprefix}lightningd.sqlite3.backup
+  # always re-init plugin
+  if sudo ls /home/bitcoin/.lightning/${CLNETWORK}/backup.lock; then
+    sudo rm /home/bitcoin/.lightning/${CLNETWORK}/backup.lock
   fi
+  # https://github.com/lightningd/plugins/tree/master/backup#setup
+  echo "# Initialize the backup plugin"
+  sudo -u bitcoin ${plugindir}/backup/backup-cli init\
+   --lightning-dir /home/bitcoin/.lightning/${CLNETWORK} \
+   file:///home/bitcoin/${netprefix}lightningd.sqlite3.backup
 
   source /home/admin/raspiblitz.info
   if [ "${state}" == "ready" ]; then
@@ -79,9 +80,16 @@ if [ $1 = on ];then
     echo "# Started the ${netprefix}lightningd.service"
   fi
 
+
 elif [ $1 = off ];then
   echo "# Removing the backup plugin"
-  sudo rm -f /home/bitcoin/${netprefix}cln-plugins-enabled/backup
+  sudo rm -f /home/bitcoin/${netprefix}cl-plugins-enabled/backup.py
+  echo "# Backup the existing old backup on the SDcard"
+  now=$(date +"%Y_%m_%d_%H%M%S")
+  sudo mv /home/bitcoin/${netprefix}lightningd.sqlite3.backup \
+            /home/bitcoin/${netprefix}lightningd.sqlite3.backup.${now}
+  echo "# Removing the backup.lock file"
+  sudo rm -f  /home/bitcoin/.lightning/${CLNETWORK}/backup.lock
 
 
 elif [ $1 = restore ];then
@@ -111,20 +119,25 @@ elif [ $1 = restore ];then
     sudo -u bitcoin ${plugindir}/backup/backup-cli restore \
       file:///home/bitcoin/${netprefix}lightningd.sqlite3.backup \
       /home/bitcoin/.lightning/${CLNETWORK}/lightningd.sqlite3
-  
-    sudo systemctl start ${netprefix}lightningd
+    
+    source /home/admin/raspiblitz.info
+    if [ "${state}" == "ready" ]; then
+      sudo systemctl start ${netprefix}lightningd
+      echo "# Started the ${netprefix}lightningd.service"
+    fi
   fi
 
-elif  [ $1 = backup-compact ];then
+
+elif [ $1 = backup-compact ];then
   
   if sudo ls /home/bitcoin/.lightning/${CLNETWORK}/lightningd.sqlite3;then
     # https://github.com/lightningd/plugins/tree/master/backup#performing-backup-compaction
     echo "#  Running $lightning-cli backup-compact ..."
-    $lightning-cli backup-compact
+    $lightningcli_alias backup-compact
 
   else
     echo "# No /home/bitcoin/.lightning/${CLNETWORK}/lightningd.sqlite3 is present"
-    echo "# Run 'config.scripts/cln-plugin.backup.sh on ${CLNETWORK}' first"    
+    echo "# Run 'config.scripts/cl-plugin.backup.sh on ${CLNETWORK}' first"    
   fi
 
 else

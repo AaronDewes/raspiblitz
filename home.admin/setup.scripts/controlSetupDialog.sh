@@ -38,7 +38,7 @@ if [ "${setupPhase}" == "update" ]; then
     # default to normal setup options
     setupPhase="setup"
     sudo sed -i "s/^setupPhase=.*/setupPhase='setup'/g" /home/admin/raspiblitz.info
-    echo "# you refused recovery option - defaulting to normal setup"
+    echo "# you refused recovery option - defaulting to normal setup menu"
   fi
 fi
 
@@ -55,7 +55,7 @@ if [ "${setupPhase}" == "recovery" ]; then
     # default to normal setup options
     setupPhase="setup"
     sudo sed -i "s/^setupPhase=.*/setupPhase='setup'/g" /home/admin/raspiblitz.info
-    echo "# you refused recovery option - defaulting to normal setup"
+    echo "# you refused recovery option - defaulting to normal setup menu"
   fi
 fi
 
@@ -63,12 +63,11 @@ fi
 # QuickOption: Migration from other node
 if [ "${setupPhase}" == "migration" ]; then
   # show recovery dialog
-  echo "# Starting migration dialog ..."
-  /home/admin/setup.scripts/dialogMigration.sh ${migrationOS}
+  echo "# Starting migration dialog (${hddGotMigrationData}) ..."
+  /home/admin/setup.scripts/dialogMigration.sh ${hddGotMigrationData}
   if [ "$?" == "0" ]; then
     # mark migration to happen on provision
-    echo "migrationOS='umbrel'" >> $SETUPFILE
-    echo "migrationVersion='${migrationVersion}'" >> $SETUPFILE
+    echo "migrationOS='${hddGotMigrationData}'" >> $SETUPFILE
     # user needs to reset password A, B & C
     echo "setPasswordA=1" >> $SETUPFILE
     echo "setPasswordB=1" >> $SETUPFILE
@@ -89,8 +88,27 @@ fi
 if [ "${setupPhase}" == "setup" ]; then
 
   echo "# Starting basic setup dialog ..."
-  /home/admin/setup.scripts/dialogBasicSetup.sh
+  /home/admin/setup.scripts/dialogBasicSetup.sh ${orgSetupPhase}
   menuresult=$?
+
+  # menu RECOVER menu option
+  if [ "${menuresult}" == "4" ]; then
+    setupPhase="${orgSetupPhase}"
+    # proceed with provision (mark Password A to be set)
+    echo "# OK update process starting .."
+    echo "setPasswordA=1" >> $SETUPFILE
+  fi
+  
+  # menu MIGRATE menu option
+  if [ "${menuresult}" == "5" ]; then
+    setupPhase="${orgSetupPhase}"
+    # mark migration to happen on provision
+    echo "migrationOS='${hddGotMigrationData}'" >> $SETUPFILE
+    # user needs to reset password A, B & C
+    echo "setPasswordA=1" >> $SETUPFILE
+    echo "setPasswordB=1" >> $SETUPFILE
+    echo "setPasswordC=1" >> $SETUPFILE
+  fi
 
   # exit to terminal
   if [ "${menuresult}" == "3" ]; then
@@ -145,7 +163,7 @@ if [ "${setupPhase}" == "setup" ]; then
 
     elif [ "${userChoice}" == "2" ]; then
 
-      # KEEP BLOCKCHAIN + DLETE ALL THE REST
+      # KEEP BLOCKCHAIN + DELETE ALL THE REST
       
       # when blockchain comes from another node migrate data first
       if [ "${hddGotMigrationData}" != "" ]; then
@@ -172,7 +190,7 @@ if [ "${setupPhase}" == "setup" ]; then
       sudo /home/admin/config.scripts/blitz.datadrive.sh unmount
       sleep 2
 
-      # by keeping that blockchain - user choosed already the blockchain type
+      # by keeping that blockchain - user chose already the blockchain type
       echo "Selecting as blockchain network automatically .."
       if [ "${hddBlocksLitecoin}" == "1" ]; then
         echo "network=litecoin" >> $SETUPFILE
@@ -244,14 +262,14 @@ if [ "${setupPhase}" == "setup" ]; then
         /home/admin/setup.scripts/dialogLightningWallet-lnd.sh
         dialogResult=$?
 
-      elif [ "${lightning}" == "cln" ]; then
+      elif [ "${lightning}" == "cl" ]; then
 
         echo "# Starting lightning wallet dialog for C-LIGHTNING ..."
-        /home/admin/setup.scripts/dialogLightningWallet-cln.sh
+        /home/admin/setup.scripts/dialogLightningWallet-cl.sh
         dialogResult=$?
 
       else
-        echo "FAIL: unkown lightning implementation (${lightning})"
+        echo "FAIL: unknown lightning implementation (${lightning})"
         lightningWalletDone=1
         sleep 8
       fi
@@ -281,6 +299,7 @@ if [ "${setupPhase}" == "setup" ]; then
     # prepare config file
     CONFIGFILE="/var/cache/raspiblitz/temp/raspiblitz.conf"
     sudo rm $CONFIGFILE 2>/dev/null
+    sudo touch $CONFIGFILE
     sudo chown admin:admin $CONFIGFILE
     sudo chmod 777 $CONFIGFILE
 

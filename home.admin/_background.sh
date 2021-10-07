@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# TODO: check & update localip in raspiblitz info for display (only write on change)
-
 # This script runs on after start in background
 # as a service and gets restarted on failure
 # it runs ALMOST every seconds
@@ -84,7 +82,7 @@ do
   fi
 
   ####################################################
-  # RECHECK DHCP-SERVER 
+  # RECHECK DHCP-SERVER
   # https://github.com/rootzoll/raspiblitz/issues/160
   ####################################################
 
@@ -97,7 +95,7 @@ do
     localip=$(hostname -I | awk '{print $1}')
     echo "localip(${localip})"
 
-    # detect a missing DHCP config 
+    # detect a missing DHCP config
     if [ "${localip:0:4}" = "169." ]; then
       echo "Missing DHCP detected ... trying emergency reboot"
       sudo /home/admin/config.scripts/blitz.shutdown.sh reboot
@@ -161,47 +159,62 @@ do
     if [ ${publicIPChanged} -gt 0 ]; then
 
       echo "*** change of public IP detected ***"
-      echo "  old: ${publicIP}"
+
+      # store the old IP address
+      publicIP_Old="${publicIP}"
       # refresh data
       source /mnt/hdd/raspiblitz.conf
-      echo "  new: ${publicIP}"
+      # store the new IP address
+      publicIP_New="${publicIP}"
+      # some log output
+      echo "  old: ${publicIP_Old}"
+      echo "  new: ${publicIP_New}"
 
       # if we run on IPv6 only, the global IPv6 address at the current network device (e.g: eth0) is the public IP
       if [ "${ipv6}" = "on" ]; then
-        # restart bitcoind as the global IP is stored in the node configuration
-        # and we will get more connections if this matches our real IP address
-        # otherwise the bitcoin-node connections will slowly decline 
-        echo "IPv6 only is enabled => restart bitcoind to pickup up new publicIP as local IP"
-        sudo systemctl stop bitcoind
-        sleep 3
-        sudo systemctl start bitcoind
+        # if the old or the new IPv6 address is "::1" something has gone wrong in "internet.sh update-publicip" => no need to restart services
+        if [ "${publicIP_Old}" != "::1" ] && [ "${publicIP_New}" != "::1" ]; then
+          # restart bitcoind as the global IP is stored in the node configuration
+          # and we will get more connections if this matches our real IP address
+          # otherwise the bitcoin-node connections will slowly decline
+          echo "IPv6 only is enabled => restart bitcoind to pickup up new publicIP as local IP"
+          sudo systemctl stop bitcoind
+          sleep 3
+          sudo systemctl start bitcoind
 
-        # if BTCRPCexplorer is currently running 
-        # it needs to be restarted to pickup the new IP for its "Node Status Page"
-        # but this is only needed in IPv6 only mode 
-        breIsRunning=$(sudo systemctl status btc-rpc-explorer 2>/dev/null | grep -c 'active (running)')
-        if [ ${breIsRunning} -eq 1 ]; then
-          echo "BTCRPCexplorer is running => restart BTCRPCexplorer to pickup up new publicIP for the bitcoin node"
-          sudo systemctl stop btc-rpc-explorer
-          sudo systemctl start btc-rpc-explorer
-        else 
-          echo "new publicIP but no BTCRPCexplorer restart because not running"
-        fi 
-
+          # if BTCRPCexplorer is currently running
+          # it needs to be restarted to pickup the new IP for its "Node Status Page"
+          # but this is only needed in IPv6 only mode
+          breIsRunning=$(sudo systemctl status btc-rpc-explorer 2>/dev/null | grep -c 'active (running)')
+          if [ ${breIsRunning} -eq 1 ]; then
+            echo "BTCRPCexplorer is running => restart BTCRPCexplorer to pickup up new publicIP for the bitcoin node"
+            sudo systemctl stop btc-rpc-explorer
+            sudo systemctl start btc-rpc-explorer
+          else
+            echo "new publicIP but no BTCRPCexplorer restart because not running"
+          fi
+        else
+          echo "IPv6 only is ON, but publicIP_Old OR publicIP_New is equal ::1 => no need to restart bitcoind nor BTCRPCexplorer"
+        fi
       else
         echo "IPv6 only is OFF => no need to restart bitcoind nor BTCRPCexplorer"
-      fi 
+      fi
 
       # only restart LND if auto-unlock is activated
+      # AND neither the old nor the new IPv6 address is "::1"
       if [ "${autoUnlock}" = "on" ]; then
-        echo "restart LND to pickup up new publicIP"
-        sudo systemctl stop lnd
-        sudo systemctl start lnd
+        if [ "${publicIP_Old}" != "::1" ] && [ "${publicIP_New}" != "::1" ]; then
+          echo "restart LND to pickup up new publicIP"
+          sudo systemctl stop lnd
+          sudo systemctl start lnd
+        else
+          echo "publicIP_Old OR publicIP_New is equal ::1 => no need to restart LND"
+        fi
       else
         echo "new publicIP but no LND restart because no auto-unlock"
       fi
 
-      # trigger update if dnyamic domain (if set)
+      # trigger update if dynamic domain (if set)
       updateDynDomain=1
 
     else
@@ -255,7 +268,7 @@ do
     fi
     blitzTUIHeartBeatLine="${latestHeartBeatLine}"
   fi
-  
+
   ###############################
   # SCB Monitoring
   ###############################
@@ -300,10 +313,10 @@ do
             sudo cp ${localBackupPath} /mnt/backup/
             sudo cp ${localTimestampedPath} /mnt/backup/
 
-            # check reseults
+            # check results
             result=$?
             if [ ${result} -eq 0 ]; then
-              echo "OK - Sucessfull Copy to additional Backup Device"
+              echo "OK - Successful Copy to additional Backup Device"
             else
               echo "FAIL - Copy to additional Backup Device exited with ${result}"
             fi
@@ -316,14 +329,19 @@ do
         # check if a SCP backup target is set
         # parameter in raspiblitz.conf:
         # scpBackupTarget='[USER]@[SERVER]:[DIRPATH-WITHOUT-ENDING-/]'
+        # optionally a custom option string for the scp command can be set with
+        # scpBackupOptions='[YOUR-CUSTOM-OPTIONS]'
         # On target server add the public key of your RaspiBlitz to the authorized_keys for the user
         # https://www.linode.com/docs/security/authentication/use-public-key-authentication-with-ssh/
         if [ ${#scpBackupTarget} -gt 0 ]; then
           echo "--> Offsite-Backup SCP Server"
+          if [ "${scpBackupOptions}" == "" ]; then
+            scpBackupOptions="-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+          fi 
           # its ok to ignore known host, because data is encrypted (worst case of MiM would be: no offsite channel backup)
           # but its more likely that without ignoring known host, script might not run thru and that way: no offsite channel backup
-          sudo scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${localBackupPath} ${scpBackupTarget}/
-          sudo scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ${localTimestampedPath} ${scpBackupTarget}/
+          sudo scp ${scpBackupOptions} ${localBackupPath} ${scpBackupTarget}/
+          sudo scp ${scpBackupOptions} ${localTimestampedPath} ${scpBackupTarget}/
           result=$?
           if [ ${result} -eq 0 ]; then
             echo "OK - SCP Backup exited with 0"
@@ -343,6 +361,18 @@ do
           if [ ${#err} -gt 0 ]; then
             echo "FAIL -  ${err}"
             echo "${errMore}"
+          else
+            echo "OK - ${upload}"
+          fi
+        fi
+
+        # check if Nextcloud backups are enabled
+        if [ $nextcloudBackupServer ] && [ $nextcloudBackupUser ] && [ $nextcloudBackupPassword ]; then
+          echo "--> Offsite-Backup Nextcloud"
+          source <(sudo /home/admin/config.scripts/nextcloud.upload.sh upload ${localBackupPath})
+          source <(sudo /home/admin/config.scripts/nextcloud.upload.sh upload ${localTimestampedPath})
+          if [ ${#err} -gt 0 ]; then
+            echo "FAIL -  ${err}"
           else
             echo "OK - ${upload}"
           fi
@@ -375,7 +405,7 @@ do
   # check every hour
   recheckRAID=$((($counter % 3600)+1))
   if [ ${recheckRAID} -eq 1 ]; then
-    
+
     # check if raid is active
     source <(sudo /home/admin/config.scripts/blitz.datadrive.sh status)
     if [ ${isRaid} -eq 1 ]; then
@@ -405,7 +435,7 @@ do
 
         echo "STARTING AUTO-UNLOCK ..."
         sudo /home/admin/config.scripts/lnd.unlock.sh
-        
+
       fi
     fi
   fi
@@ -475,18 +505,6 @@ do
         sudo systemctl start ${network}d
 
       fi
-    fi
-  fi
-
-  ###############################
-  # Set the address API use for BTC-RPC-Explorer depending on Electrs status
-  ###############################
-
-  # check every 10 minutes
-  electrsExplorer=$((($counter % 600)+1))
-  if [ ${electrsExplorer} -eq 1 ]; then
-    if [ "${BTCRPCexplorer}" = "on" ]; then
-      /home/admin/config.scripts/bonus.electrsexplorer.sh
     fi
   fi
 

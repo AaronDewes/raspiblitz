@@ -18,9 +18,9 @@ function usage() {
 
 # Default Values
 verbose=0
-pause=12
+pause=3
 
-# this is used by touchscreen and command 'satus'
+# this is used by touchscreen and command 'status'
 # TODO: remove on v1.8
 while [[ "$1" == -* ]]; do
   case "$1" in
@@ -92,7 +92,7 @@ while :
       source <(/home/admin/config.scripts/network.aliases.sh getvars)
     fi
 
-    if [ "${setupPhase}" != "done" ] || [ "${state}" == "copytarget" ] || [ "${state}" == "copysource" ] || [ "${state}" == "copystation" ]; then
+    if [ "${setupPhase}" != "done" ] || [ "${state}" == "reboot" ] || [ "${state}" == "shutdown" ] || [ "${state}" == "copytarget" ] || [ "${state}" == "copysource" ] || [ "${state}" == "copystation" ]; then
 
       # show status info during boot & setup & repair on LCD
       /home/admin/setup.scripts/eventInfoWait.sh "${state}" "${message}" lcd
@@ -101,9 +101,15 @@ while :
 
     fi
 
-    # TODO: ALSO SEPERATE GUI/ACTION FOR THE SCANNING / WALLET UNLOCK / ERROR DETECTION 
+    # TODO: ALSO SEPARATE GUI/ACTION FOR THE SCANNING / WALLET UNLOCK / ERROR DETECTION 
     # if lightning is syncing or scanning
-    source <(sudo /home/admin/config.scripts/blitz.statusscan.sh)
+    source <(sudo /home/admin/config.scripts/blitz.statusscan.sh $lightning)
+    if [ "${walletLocked}" == "1" ] || [ "${CLwalletLocked}" == "1" ]; then
+      /home/admin/setup.scripts/eventInfoWait.sh "walletlocked" "" lcd
+      sleep 3
+      continue
+    fi
+
     if [ "${syncedToChain}" != "1" ]; then
       /home/admin/setup.scripts/eventBlockchainSync.sh lcd
       sleep 10
@@ -111,7 +117,7 @@ while :
     fi
 
     # no special case - show status display
-    /home/admin/00infoBlitz.sh
+    /home/admin/00infoBlitz.sh $lightning ${chain}net
     sleep 5
 
 done

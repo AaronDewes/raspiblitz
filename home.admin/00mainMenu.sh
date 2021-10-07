@@ -49,27 +49,42 @@ elif [ ${chain} = main ];then
 fi
 
 # BASIC MENU INFO
-WIDTH=64
+WIDTH=66
 BACKTITLE="RaspiBlitz"
 TITLE=""
 MENU="Choose one of the following options:"
 OPTIONS=()
 plus=""
 if [ "${runBehindTor}" = "on" ]; then
-  plus=" / TOR"
+  plus="/ tor"
 fi
 if [ ${#dynDomain} -gt 0 ]; then
-  plus="${plus} / ${dynDomain}"
+  plus="/ ${dynDomain} ${plus}"
 fi
-BACKTITLE="${localip} / ${hostname} / ${network} / ${chain}${plus}"
+if [ ${#lightning} -gt 0 ]; then
+  plus="/ ${lightning} ${plus}"
+fi
+BACKTITLE="${localip} / ${hostname} / ${network} ${plus}"
 
+# Basic Options
+OPTIONS+=(INFO "RaspiBlitz Status Screen")
+
+# if LND is active
+if [ "${lightning}" == "lnd" ] || [ "${lnd}" == "on" ]; then
+  OPTIONS+=(LND "LND Wallet Options")
+fi
+
+# if C-Lightning is active
+if [ "${lightning}" == "cl" ] || [ "${cl}" == "on" ]; then
+  OPTIONS+=(CL "C-lightning Wallet Options")
+fi
+
+# Activated Apps/Services
 if [ "${rtlWebinterface}" == "on" ]; then
-  TITLE="Webinterface: http://${localip}:3000"
+  OPTIONS+=(LRTL "LND RTL Webinterface")
 fi
-
-# Put Activated Apps on top
-if [ "${rtlWebinterface}" == "on" ] || [ "${crtlWebinterface}" == "on" ]; then
-  OPTIONS+=(RTL "RTL Web Node Manager")
+if [ "${crtlWebinterface}" == "on" ]; then
+  OPTIONS+=(CRTL "C-Lightning RTL Webinterface")
 fi
 if [ "${BTCPayServer}" == "on" ]; then
   OPTIONS+=(BTCPAY "BTCPay Server Info")
@@ -79,6 +94,9 @@ if [ "${lit}" == "on" ]; then
 fi
 if [ "${sparko}" == "on" ]; then
   OPTIONS+=(SPARKO "Sparko Webwallet")
+fi
+if [ "${spark}" == "on" ]; then
+  OPTIONS+=(SPARK "Spark Wallet")
 fi
 if [ "${ElectRS}" == "on" ]; then
   OPTIONS+=(ELECTRS "Electrum Rust Server")
@@ -99,10 +117,10 @@ if [ "${mempoolExplorer}" == "on" ]; then
   OPTIONS+=(MEMPOOL "Mempool Space")
 fi
 if [ "${specter}" == "on" ]; then
-  OPTIONS+=(SPECTER "Cryptoadvance Specter")
+  OPTIONS+=(SPECTER "Specter Desktop")
 fi
 if [ "${joinmarket}" == "on" ]; then
-  OPTIONS+=(JMARKET "JoinMarket")
+  OPTIONS+=(JM "JoinMarket with JoininBox")
 fi
 if [ "${faraday}" == "on" ]; then
   OPTIONS+=(FARADAY "Faraday Channel Management")
@@ -132,39 +150,22 @@ if [ "${circuitbreaker}" == "on" ]; then
   OPTIONS+=(CIRCUIT "Circuitbreaker (LND firewall)")
 fi
 
-if [ "${testnet}" == "on" ]&&[ ${chain} != test ]; then
-  OPTIONS+=(TESTNET "Testnet Service Options")
-fi
-if [ ${chain} != main ]; then
-  OPTIONS+=(MAINNET "Mainnet Service Options")
-fi
-
-# Basic Options
-OPTIONS+=(INFO "RaspiBlitz Status Screen")
-
-# if LND is main lightning
-if [ "${lightning}" == "lnd" ]; then
-  OPTIONS+=(LND "LND Wallet Options")
-fi
-
-# if C-Lighthing is main lightning
-if [ "${lightning}" == "cln" ]; then
-# if CLN is main lightning
-  OPTIONS+=(CLN "C-lightning Wallet Options")
-fi
-
-# TODO: when more then one Lightning is active
-#if [ "$cln" == "on" ] || [ $chain = test ] && [ "$tcln" == "on" ]; then
-#  OPTIONS+=(CLN "C-lightning Wallet Options")
-#  HEIGHT=$((HEIGHT+1))
-#  CHOICE_HEIGHT=$((CHOICE_HEIGHT+1))
+# dont offer to switch to "testnet view for now" - so no wswitch back to mainnet needed
+#if [ ${chain} != "main" ]; then
+#  OPTIONS+=(MAINNET "Mainnet Service Options")
 #fi
+
+if [ "${testnet}" == "on" ]; then
+  OPTIONS+=(TESTNETS "Testnet/Signet Options")
+fi
 
 OPTIONS+=(SETTINGS "Node Settings & Options")
 OPTIONS+=(SERVICES "Additional Apps & Services")
 OPTIONS+=(SYSTEM "Monitoring & Configuration")
 OPTIONS+=(CONNECT "Connect Apps & Show Credentials")
-OPTIONS+=(SUBSCRIBE "Manage Subscriptions")
+if [ "${lightning}" == "lnd" ] || [ "${lnd}" == "on" ]; then
+  OPTIONS+=(SUBSCRIBE "Manage Subscriptions")
+fi
 OPTIONS+=(PASSWORD "Change Passwords")
 
 if [ "${touchscreen}" == "1" ]; then
@@ -177,8 +178,7 @@ OPTIONS+=(UPDATE "Check/Prepare RaspiBlitz Update")
 OPTIONS+=(REBOOT "Reboot RaspiBlitz")
 OPTIONS+=(OFF "PowerOff RaspiBlitz")
 
-
-CHOICE_HEIGHT=$(("${#OPTIONS[@]}"))
+CHOICE_HEIGHT=$(("${#OPTIONS[@]}/2+1"))
 HEIGHT=$((CHOICE_HEIGHT+6))
 CHOICE=$(dialog --clear \
                 --backtitle "$BACKTITLE" \
@@ -193,39 +193,32 @@ CHOICE=$(dialog --clear \
 case $CHOICE in
         INFO)
             echo "Gathering Information (please wait) ..."
-            walletLocked=$(lncli getinfo 2>&1 | grep -c "Wallet is encrypted")
-            if [ ${walletLocked} -eq 0 ]; then
-              while :
-                do
+            while :
+              do
 
-                # show the same info as on LCD screen
-                /home/admin/00infoBlitz.sh
+              # show the same info as on LCD screen
+              /home/admin/00infoBlitz.sh ${lightning} ${chain}net
 
-                # wait 6 seconds for user exiting loop
+              # wait 6 seconds for user exiting loop
+              echo ""
+              echo -en "Screen is updating in a loop .... press 'x' now to get back to menu."
+              read -n 1 -t 6 keyPressed
+              echo -en "\rGathering information to update info ... please wait.                \n"  
+
+              # check if user wants to abort session
+              if [ "${keyPressed}" = "x" ]; then
                 echo ""
-                echo -en "Screen is updating in a loop .... press 'x' now to get back to menu."
-                read -n 1 -t 6 keyPressed
-                echo -en "\rGathering information to update info ... please wait.                \n"  
-
-                # check if user wants to abort session
-                if [ "${keyPressed}" = "x" ]; then
-                  echo ""
-                  echo "Returning to menu ....."
-                  sleep 4
-                  break
-                fi
-              done
-
-            else
-              /home/admin/00raspiblitz.sh
-              exit 0
-            fi
+                echo "Returning to menu ....."
+                sleep 4
+                break
+              fi
+            done
             ;;
         LND)
             /home/admin/99lndMenu.sh
             ;;
-        CLN)
-            /home/admin/99clnMenu.sh ${chain}net
+        CL)
+            /home/admin/99clMenu.sh ${chain}net
             ;;
         CONNECT)
             /home/admin/99connectMenu.sh
@@ -237,8 +230,11 @@ case $CHOICE in
             dialog --title 'Touchscreen Calibration' --msgbox 'Choose OK and then follow the instructions on touchscreen for calibration.\n\nBest is to use a stylus for accurate touchscreen interaction.' 9 48
             /home/admin/config.scripts/blitz.touchscreen.sh calibrate
             ;;
-        RTL)
-            /home/admin/config.scripts/bonus.rtl.sh menu ${lightning}
+        LRTL)
+            /home/admin/config.scripts/bonus.rtl.sh menu lnd mainnet
+            ;;
+        CRTL)
+            /home/admin/config.scripts/bonus.rtl.sh menu cl mainnet
             ;;
         BTCPAY)
             /home/admin/config.scripts/bonus.btcpayserver.sh menu
@@ -253,7 +249,10 @@ case $CHOICE in
             /home/admin/config.scripts/bonus.lit.sh menu
             ;;
         SPARKO)
-            /home/admin/config.scripts/cln-plugin.sparko.sh menu mainnet
+            /home/admin/config.scripts/cl-plugin.sparko.sh menu mainnet
+            ;;
+        SPARK)
+            /home/admin/config.scripts/cl.spark.sh menu mainnet
             ;;
         LNBITS)
             /home/admin/config.scripts/bonus.lnbits.sh menu
@@ -268,9 +267,9 @@ case $CHOICE in
             /home/admin/config.scripts/bonus.mempool.sh menu
             ;;
         SPECTER)
-            /home/admin/config.scripts/bonus.cryptoadvance-specter.sh menu
+            /home/admin/config.scripts/bonus.specter.sh menu
             ;;
-        JMARKET)
+        JM)
             sudo /home/admin/config.scripts/bonus.joinmarket.sh menu
             ;;
         FARADAY)
@@ -300,12 +299,9 @@ case $CHOICE in
         CIRCUIT)
             sudo /home/admin/config.scripts/bonus.circuitbreaker.sh menu
             ;;
-        TESTNET)
-            /home/admin/00parallelChainsMenu.sh testnet
-            ;;    
-        MAINNET)
-            /home/admin/00parallelChainsMenu.sh mainnet
-            ;;    
+        TESTNETS)
+            /home/admin/00parallelChainsMenu.sh
+            ;;  
         SUBSCRIBE)
             /home/admin/config.scripts/blitz.subscriptions.py
             ;;

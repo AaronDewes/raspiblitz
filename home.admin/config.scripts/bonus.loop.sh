@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# !! NOTICE: Faraday is now prt of the 'bonus.lit.sh' bundle
+# !! NOTICE: Faraday is now part of the 'bonus.lit.sh' bundle
 # this single install script will still be available for now
 # but main focus for the future development should be on LIT
 
@@ -135,6 +135,9 @@ WantedBy=multi-user.target
   else 
     echo "# The Loop service already installed."
   fi
+
+  # in case RTL is installed - check to connect
+  sudo /home/admin/config.scripts/bonus.rtl.sh connect-services
 
   # setting value in raspi blitz config
   sudo sed -i "s/^loop=.*/loop=on/g" /mnt/hdd/raspiblitz.conf

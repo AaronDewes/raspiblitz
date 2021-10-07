@@ -47,10 +47,10 @@ do
     # formatting LIGHTNING SCAN PROGRESS  
     if [ "${lightning}" != ""  ] && [ "${scanProgress}" == "" ]; then
         # in case of LND RPC is not ready yet
-        if [ ${scanTimestamp} -eq -2 ]; then
+        if [ "${scanTimestamp}" != "" ] && [ ${scanTimestamp} -eq -2 ]; then
             scanProgress="prepare sync"
         # in case LND restarting >2  
-        elif [ ${startcountLightning} -gt 2 ]; then
+        elif [ "${startcountLightning}" != "" ] && [ ${startcountLightning} -gt 2 ]; then
             scanProgress="${startcountLightning} restarts"
         # unkown cases
         else
@@ -65,7 +65,7 @@ do
     # setting info string
     infoStr=" Blockchain Progress : ${syncProgress}\n"
     
-    if [ "${lightning}" == "lnd" ] || [ "${lightning}" == "cln" ]; then
+    if [ "${lightning}" == "lnd" ] || [ "${lightning}" == "cl" ]; then
        infoStr="${infoStr} Lightning Progress  : ${scanProgress}\n ${actionString}"
     else
        # if lightning is deactivated (leave line clear)

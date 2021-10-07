@@ -2,18 +2,20 @@
 
 # command info
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "-help" ]; then
- echo "# ---------------------------------------------------"
- echo "# CLN RESCUE FILE (tar.gz of complete cln directory)"
- echo "# ---------------------------------------------------"
- echo "# cln.backup.sh cln-export"
- echo "# cln.backup.sh cln-export-gui"
- echo "# cln.backup.sh cln-import [file]"
- echo "# cln.backup.sh cln-import-gui [setup|production] [?resultfile]"
- echo "# ---------------------------------------------------"
- echo "# SEED WORDS"
- echo "# ---------------------------------------------------"
- echo "# cln.backup.sh seed-export-gui [lndseeddata]"
- echo "# cln.backup.sh seed-import-gui [resultfile]"
+ echo
+ echo "---------------------------------------------------"
+ echo "CL RESCUE FILE (tar.gz of complete cl directory)"
+ echo "---------------------------------------------------"
+ echo "cl.backup.sh cl-export"
+ echo "cl.backup.sh cl-export-gui"
+ echo "cl.backup.sh cl-import [file]"
+ echo "cl.backup.sh cl-import-gui [setup|production] [?resultfile]"
+ echo "---------------------------------------------------"
+ echo "SEED WORDS"
+ echo "---------------------------------------------------"
+ echo "cl.backup.sh seed-export-gui [lndseeddata]"
+ echo "cl.backup.sh seed-import-gui [resultfile]"
+ echo
  exit 1
 fi
 
@@ -21,40 +23,48 @@ fi
 mode="$1"
 
 ################################
-# CLN RESCUE FILE - EXPORT
+# CL RESCUE FILE - EXPORT
 ################################
 
-if [ ${mode} = "cln-export" ]; then
+if [ ${mode} = "cl-export" ]; then
 
-  echo "# *** CLN.RESCUE --> BACKUP"
+  echo "# *** CL.RESCUE --> BACKUP"
   downloadPath="/home/admin"
   fileowner="admin"
 
-  # stop LND
-  echo "# Stopping cln..."
+  # stop
+  echo "# Stopping cl..."
   sudo systemctl stop lightningd 1>/dev/null
+  if grep -Eq "^tcl=on" /mnt/hdd/raspiblitz.conf; then
+    echo "# stopping tcl..."
+    sudo systemctl stop tlightningd 1>/dev/null
+  fi
+  if grep -Eq "^scl=on" /mnt/hdd/raspiblitz.conf; then
+    echo "# stopping scl..."
+    sudo systemctl stop slightningd 1>/dev/null
+  fi
   sleep 5
   echo "# OK"
   echo 
 
-  # add cln version info into lnd dir (to detect needed updates later)
-  clnVersion=$(sudo -u bitcoin lightning-cli --version | cut -d '-' -f1 | cut -d 'v' -f2)
+  # add cl version info into lnd dir (to detect needed updates later)
+  clVersion=$(sudo -u bitcoin lightning-cli --version | cut -d '-' -f1 | cut -d 'v' -f2)
   sudo rm /mnt/hdd/app-data/.lightning/version.info 2>/dev/null
-  echo "${clnVersion}" > /home/admin/cln.version.info
-  sudo mv /home/admin/cln.version.info /mnt/hdd/app-data/.lightning/version.info
+  echo "${clVersion}" > /home/admin/cl.version.info
+  sudo mv /home/admin/cl.version.info /mnt/hdd/app-data/.lightning/version.info
   sudo chown bitcoin:bitcoin /mnt/hdd/app-data/.lightning/version.info
 
   # zip it
-  sudo tar -zcvf ${downloadPath}/cln-rescue.tar.gz /mnt/hdd/app-data/.lightning 1>&2
-  sudo chown ${fileowner}:${fileowner} ${downloadPath}/cln-rescue.tar.gz 1>&2
+  sudo tar -zcvf ${downloadPath}/cl-rescue.tar.gz /mnt/hdd/app-data/.lightning 1>&2
+  sudo chown ${fileowner}:${fileowner} ${downloadPath}/cl-rescue.tar.gz 1>&2
 
   # delete old backups
-  rm ${downloadPath}/cln-rescue-*.tar.gz 2>/dev/null 1>/dev/null
+  rm ${downloadPath}/cl-rescue-*.tar.gz 2>/dev/null 1>/dev/null
 
   # name with md5 checksum
-  md5checksum=$(md5sum ${downloadPath}/cln-rescue.tar.gz | head -n1 | cut -d " " -f1)
-  mv ${downloadPath}/cln-rescue.tar.gz ${downloadPath}/cln-rescue-${md5checksum}.tar.gz 1>&2
-  byteSize=$(ls -l ${downloadPath}/cln-rescue-${md5checksum}.tar.gz | awk '{print $5}')
+  md5checksum=$(md5sum ${downloadPath}/cl-rescue.tar.gz | head -n1 | cut -d " " -f1)
+  mv ${downloadPath}/cl-rescue.tar.gz ${downloadPath}/cl-rescue-${md5checksum}.tar.gz 1>&2
+  byteSize=$(ls -l ${downloadPath}/cl-rescue-${md5checksum}.tar.gz | awk '{print $5}')
 
   # check file size
   if [ ${byteSize} -lt 100 ]; then
@@ -63,17 +73,17 @@ if [ ${mode} = "cln-export" ]; then
   fi
 
   # output result data
-  echo "# cln service is stopped for security"
-  echo "filename='${downloadPath}/cln-rescue-${md5checksum}.tar.gz'"
+  echo "# cl service is stopped for security"
+  echo "filename='${downloadPath}/cl-rescue-${md5checksum}.tar.gz'"
   echo "fileowner='${fileowner}'"
   echo "size=${byteSize}"
   exit 0
 fi
 
-if [ ${mode} = "cln-export-gui" ]; then
+if [ ${mode} = "cl-export-gui" ]; then
 
   # create lnd rescue file
-  source <(/home/admin/config.scripts/cln.backup.sh cln-export)
+  source <(/home/admin/config.scripts/cl.backup.sh cl-export)
   if [ "${error}" != "" ]; then
     echo "error='${error}'"
     exit 1
@@ -105,10 +115,10 @@ if [ ${mode} = "cln-export-gui" ]; then
 fi
 
 ################################
-# CLN RESCUE FILE - IMPORT
+# CL RESCUE FILE - IMPORT
 ################################
 
-if [ ${mode} = "cln-import" ]; then
+if [ ${mode} = "cl-import" ]; then
 
   # 2nd PARAMETER: file to import (expect that the file was valid checked from calling script)
   filename=$2
@@ -122,17 +132,25 @@ if [ ${mode} = "cln-import" ]; then
     exit 1
   fi
 
-  # stop LND
-  echo "# stopping cln..."
+  # stop
+  echo "# stopping cl..."
   sudo systemctl stop lightningd 1>/dev/null
+  if grep -Eq "^tcl=on" /mnt/hdd/raspiblitz.conf; then
+    echo "# stopping tcl..."
+    sudo systemctl stop tlightningd 1>/dev/null
+  fi
+  if grep -Eq "^scl=on" /mnt/hdd/raspiblitz.conf; then
+    echo "# stopping scl..."
+    sudo systemctl stop slightningd 1>/dev/null
+  fi
   sleep 5
 
   # clean DIR
-  echo "# cleaning old CLN data ..."
+  echo "# cleaning old CL data ..."
   sudo rm -r /mnt/hdd/app-data/.lightning/* 1>/dev/null 2>/dev/null
 
   # unpack zip
-  echo "# restoring CLN data from ${filename} ..."
+  echo "# restoring CL data from ${filename} ..."
   sudo tar -xf ${filename} -C / 1>/dev/null
   sudo chown -R bitcoin:bitcoin /mnt/hdd/app-data/.lightning 1>/dev/null
 
@@ -142,7 +160,7 @@ if [ ${mode} = "cln-import" ]; then
 
 fi
 
-if [ ${mode} = "cln-import-gui" ]; then
+if [ ${mode} = "cl-import-gui" ]; then
 
   # get by second parameter if this call if happening during setup or production
   scenario=$2
@@ -155,7 +173,7 @@ if [ ${mode} = "cln-import-gui" ]; then
   if [ "${scenario}" == "setup" ]; then
     RESULTFILE=$3
     if [ "${RESULTFILE}" == "" ]; then
-      echo "error='mising parameter'"
+      echo "error='missing parameter'"
       exit 1 
     fi
   fi
@@ -177,22 +195,22 @@ if [ ${mode} = "cln-import-gui" ]; then
       echo "**************************"
       echo "* UPLOAD THE RESCUE FILE *"
       echo "**************************"
-      echo "If you have a cln-rescue backup file on your laptop you can now"
+      echo "If you have a cl-rescue backup file on your laptop you can now"
       echo "upload it and restore your latest C-Lightning state."
       echo
       echo "CAUTION: Dont restore outdated states - risk of loosing funds!"
       echo
       echo "To make upload open a new terminal on your laptop,"
-      echo "change into the directory where your cln-rescue file is and"
+      echo "change into the directory where your cl-rescue file is and"
       echo "COPY, PASTE AND EXECUTE THE FOLLOWING COMMAND:"
-      echo "scp -r ./cln-rescue-*.tar.gz ${defaultUploadUser}@${localip}:${defaultUploadPath}/"
+      echo "scp -r ./cl-rescue-*.tar.gz ${defaultUploadUser}@${localip}:${defaultUploadPath}/"
       echo ""
       echo "Use ${passwordInfo} to authenticate file transfer."
       echo "PRESS ENTER when upload is done"
       read key
 
       # check upload (will return filename or error)
-      source <(sudo /home/admin/config.scripts/blitz.upload.sh check-upload cln-rescue)
+      source <(sudo /home/admin/config.scripts/blitz.upload.sh check-upload cl-rescue)
       if [ "${filename}" != "" ]; then
         echo "OK - File found: ${filename}"
         echo "PRESS ENTER to continue."
@@ -204,7 +222,7 @@ if [ ${mode} = "cln-import-gui" ]; then
         read keyRetry
       elif [ "${error}" == "multiple" ]; then
         echo "!! WARNING !!"
-        echo "There are multiple cln-rescue files in directory ${defaultUploadPath}"
+        echo "There are multiple cl-rescue files in directory ${defaultUploadPath}"
         echo "Make sure you upload only one tar.gz-file and start again."
         echo "PRESS ENTER to continue & retry ... or 'x'+ ENTER to cancel"
         read keyRetry
@@ -229,9 +247,9 @@ if [ ${mode} = "cln-import-gui" ]; then
 
   # in setup scenario the final import is happening during provison
   if [ "${scenario}" == "setup" ]; then
-    # just add lndrescue filename to give file
+    # just add clrescue filename to give file
     echo "# result in: ${RESULTFILE} (remember to make clean delete once processed)"
-    echo "clnrescue='${filename}'" >> $RESULTFILE
+    echo "clrescue='${filename}'" >> $RESULTFILE
     exit 0
   fi
 
@@ -251,22 +269,56 @@ if [ ${mode} = "cln-import-gui" ]; then
   echo
 
   # run import process
-  echo "OK deleting old CLN data & restoring imported rescue file ..."
-  source <(sudo /home/admin/config.scripts/cln.backup.sh cln-import ${filename})
+  echo "OK deleting old CL data & restoring imported rescue file ..."
+  source <(sudo /home/admin/config.scripts/cl.backup.sh cl-import ${filename})
 
-  # TODO: check if update of CLN is needed (see detailes in cln-import) for edge case
+  # TODO: check if update of CL is needed (see detailes in cl-import) for edge case
 
-  # TODO: auto-unlock for c-lightning?
   # turn off auto-unlock if activated because password c might now change
-  # if [ "${autoUnlock}" == "on" ]; then
-  #   /home/admin/config.scripts/cln.autounlock.sh off
-  # fi
-  
-  # restarting lnd & give final info
-  sudo systemctl start lightningd
-  echo "DONE - lightningd is now restarting .. Password C is now like within your rescue file"
-  echo "Check that CLN is starting up correctly and your old channel & funds are restored."
-  echo "Take into account that some channels might have been force closed in the meanwhile."
+  /home/admin/config.scripts/cl.hsmtool.sh autounlock-off
+
+  # detect if the imported hsm_secret is encrypted
+  # use the variables for the default network 
+  source <(/home/admin/config.scripts/network.aliases.sh getvars cl)
+  hsmSecretPath="/home/bitcoin/.lightning/${CLNETWORK}/hsm_secret"
+  # check if encrypted
+  trap 'rm -f "$output"' EXIT
+  output=$(mktemp -p /dev/shm/)
+  echo "test" | sudo -u bitcoin lightning-hsmtool decrypt "$hsmSecretPath" \
+   2> "$output"
+  if [ "$(grep -c "hsm_secret is not encrypted" < "$output")" -gt 0 ];then
+    echo "# The hsm_secret is not encrypted"
+    echo "# Record in raspiblitz.conf"
+    sudo sed -i \
+    "s/^${netprefix}clEncryptedHSM=.*/${netprefix}clEncryptedHSM=off/g" \
+    /mnt/hdd/raspiblitz.conf
+  else
+    cat $output
+    echo "# Starting cl.hsmtool.sh unlock"
+    /home/admin/config.scripts/cl.hsmtool.sh unlock # there are mutiple wallets possible, need to check for non-default ones too
+  fi
+
+  # set the lightningd service file on each active network
+  # init backup plugin, restart cl
+  if [ "${cl}" == "on" ] || [ "${cl}" == "1" ]; then
+    /home/admin/config.scripts/cl.install-service.sh mainnet
+    /home/admin/config.scripts/cl-plugin.backup.sh on mainnet
+  fi
+  if [ "${tcl}" == "on" ] || [ "${tcl}" == "1" ]; then
+    /home/admin/config.scripts/cl.install-service.sh testnet
+    /home/admin/config.scripts/cl-plugin.backup.sh on testnet
+  fi
+  if [ "${scl}" == "on" ] || [ "${scl}" == "1" ]; then
+    /home/admin/config.scripts/cl.install-service.sh signet
+    /home/admin/config.scripts/cl-plugin.backup.sh on signet
+  fi
+ 
+  # give final info
+  echo
+  echo "# DONE - lightningd is now starting"
+  echo "# Check that CL is starting up correctly and your old channels & funds are restored."
+  echo "# Take into account that some channels might have been force closed in the meanwhile."
+  echo
   exit 0
 fi
 
@@ -289,7 +341,7 @@ if [ ${mode} = "seed-export-gui" ]; then
   ack=0
   while [ ${ack} -eq 0 ]
   do
-    whiptail --title "IMPORTANT SEED WORDS - PLEASE WRITE DOWN" --msgbox "C-Lightning Wallet got created. Store these numbered words in a safe location:\n\n${seedwords6x4}" 12 76
+    whiptail --title "IMPORTANT SEED WORDS - PLEASE WRITE DOWN" --msgbox "Created a new C-lightning wallet. Store these numbered 24 words in a safe location:\n\n${seedwords6x4}" 13 76
     whiptail --title "Please Confirm" --yes-button "Show Again" --no-button "CONTINUE" --yesno "  Are you sure that you wrote down the word list?" 8 55
     if [ $? -eq 1 ]; then
       ack=1
@@ -380,7 +432,7 @@ wordone wordtweo wordthree ...
       fi
     done
 
-  # dont ask for password D (seed password) because raspiblitz never had that option for cln
+  # dont ask for password D (seed password) because raspiblitz never had that option for cl
   passwordD=""
 
   # writing result file data

@@ -1,7 +1,7 @@
 #!/bin/bash
 # for reboot call: sudo /home/admin/config.scripts/blitz.shutdown.sh reboot
 
-# use this script instead of dirct shutdown command to:
+# use this script instead of direct shutdown command to:
 # 1) give UI the info that a reboot/shutdown is now happening
 # 2) shutdown/reboot in a safe way to prevent data corruption
 
@@ -17,12 +17,12 @@ fi
 
 # display info
 echo ""
-echo "LCD turns white when shutdown complete."
+echo "Green activity light stays dark and LCD turns white when shutdown complete."
 if [ "$1" = "reboot" ]; then
   shutdownParams="-h -r now"
   echo "It will then reboot again automatically."
   sed -i "s/^state=.*/state=reboot/g" ${infoFile}
-  sed -i "s/^message=.*/message=''/g" ${infoFile}
+  sed -i "s/^message=.*/message='$2'/g" ${infoFile}
 else
   shutdownParams="-h now"
   echo "Then wait 5 seconds and disconnect power."
@@ -32,29 +32,35 @@ fi
 
 # do shutdown/reboot
 echo "-----------------------------------------------"
+sleep 3
 
 # stopping electRS (if installed)
 echo "stop electrs - please wait .."
 sudo systemctl stop electrs 2>/dev/null
 
-# stopping lnd
+# stopping lightning
 echo "stop lightning - please wait .."
 sudo systemctl stop lnd 2>/dev/null
 sudo systemctl stop lightningd 2>/dev/null
+sudo systemctl stop tlnd 2>/dev/null
+sudo systemctl stop tlightningd 2>/dev/null
+sudo systemctl stop slnd 2>/dev/null
+sudo systemctl stop slightningd 2>/dev/null
 
 # stopping bitcoin (thru cli)
 echo "stop ${network}d (1) - please wait .."
-sudo -u bitcoin ${network}-cli stop 2>/dev/null
-sleep 10
+timeout 10 sudo -u bitcoin ${network}-cli stop 2>/dev/null
 
 # stopping bitcoind (thru systemd)
 echo "stop ${network}d (2) - please wait .."
 sudo systemctl stop ${network}d 2>/dev/null
+sudo systemctl stop t${network}d 2>/dev/null
+sudo systemctl stop s${network}d 2>/dev/null
 sleep 3
 
 # make sure drives are synced before shutdown
 source <(sudo /home/admin/config.scripts/blitz.datadrive.sh status)
-if [ ${isBTRFS} -eq 1 ] && [ ${isMounted} -eq 1 ]; then
+if [ "${isBTRFS}" == "1" ] && [ "${isMounted}" == "1" ]; then
   echo "STARTING BTRFS RAID DATA CHECK ..."
   sudo btrfs scrub start /mnt/hdd/
 fi

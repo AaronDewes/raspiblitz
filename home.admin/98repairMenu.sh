@@ -46,19 +46,23 @@ RaspiBlitz image to your SD card.
 " 12 40
 }
 
-# Basic Options
-#OPTIONS=(HARDWARE "Run Hardwaretest" \
-OPTIONS=(SOFTWARE "Run Softwaretest (DebugReport)" \
-         BACKUP-LND "Backup your LND data (Rescue-File)" \
-         MIGRATION "Migrate Blitz Data to new Hardware" \
-         COPY-SOURCE "Copy Blockchain Source Modus" \
-         RESET-CHAIN "Delete Blockchain & Re-Download" \
-         RESET-LND "Delete LND & start new node/wallet" \
-         RESET-HDD "Delete HDD Data but keep Blockchain" \
-         RESET-ALL "Delete HDD completly to start fresh" \
-         DELETE-ELEC "Delete Electrum Index" \
-         DELETE-INDEX "Delete Bitcoin Transaction-Index"
-	)
+OPTIONS=()
+#OPTIONS+=(HARDWARE "Run Hardwaretest")
+OPTIONS+=(SOFTWARE "Run Softwaretest (DebugReport)")
+if [ "${lightning}" == "lnd" ] || [ "${lnd}" == "on" ]; then
+  OPTIONS+=(BACKUP-LND "Backup your LND data (Rescue-File)")
+  OPTIONS+=(RESET-LND "Delete LND & start new node/wallet")
+fi
+if [ "${lightning}" == "cl" ] || [ "${cl}" == "on" ]; then
+  OPTIONS+=(REPAIR-CL "Repair/Backup C-Lightning")
+fi
+OPTIONS+=(MIGRATION "Migrate Blitz Data to new Hardware")
+OPTIONS+=(COPY-SOURCE "Copy Blockchain Source Modus")
+OPTIONS+=(RESET-CHAIN "Delete Blockchain & Re-Download")
+OPTIONS+=(RESET-HDD "Delete HDD Data but keep Blockchain")
+OPTIONS+=(RESET-ALL "Delete HDD completely to start fresh")
+OPTIONS+=(DELETE-ELEC "Delete Electrum Index")
+OPTIONS+=(DELETE-INDEX "Delete Bitcoin Transaction-Index")
 
 CHOICE=$(whiptail --clear --title "Repair Options" --menu "" 18 62 11 "${OPTIONS[@]}" 2>&1 >/dev/tty)
 
@@ -78,6 +82,12 @@ case $CHOICE in
     read key
     /home/admin/config.scripts/blitz.shutdown.sh
     ;;
+  REPAIR-CL)
+    sudo /home/admin/99clRepairMenu.sh
+    echo
+    echo "Press ENTER to return to main menu."
+    read key
+    ;;
   MIGRATION)
     sudo /home/admin/config.scripts/blitz.migration.sh "export-gui"
     echo "Press ENTER to return to main menu."
@@ -95,13 +105,13 @@ case $CHOICE in
     result=""
     while [ ${#result} -eq 0 ]
     do
+        trap 'rm -f "$_temp"' EXIT
         _temp=$(mktemp -p /dev/shm/)
         l1="Please enter the new name of your LND node:\n"
         l2="different name is better for a fresh identity\n"
         l3="one word, keep characters basic & not too long"
         dialog --backtitle "RaspiBlitz - Setup (${network}/${chain})" --inputbox "$l1$l2$l3" 13 52 2>$_temp
         result=$( cat $_temp | tr -dc '[:alnum:]-.' | tr -d ' ' )
-        shred -u $_temp
         echo "processing ..."
         sleep 3
     done

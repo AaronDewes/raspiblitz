@@ -13,8 +13,6 @@ source /home/admin/_version.info
 # CONFIGFILE - configuration of RaspiBlitz
 # used by fresh SD image to recover configuration
 # and delivers basic config info for scripts 
-# make raspiblitz.conf if not there
-sudo touch /mnt/hdd/raspiblitz.conf
 configFile="/mnt/hdd/raspiblitz.conf"
 
 # LOGFILE - store debug logs of bootstrap
@@ -48,6 +46,32 @@ displayClass="lcd"
 displayType=""
 fundRecovery=0
 
+##############################################
+# check raspiblitz.conf for outdated variables
+##############################################
+
+# change all cln to cl
+# https://github.com/rootzoll/raspiblitz/pull/2575#issuecomment-927261596
+if [ $(grep -c cln < /mnt/hdd/raspiblitz.conf) -gt 0 ];then
+  sudo sed -i 's/cln/cl/g' /mnt/hdd/raspiblitz.conf
+  sudo sed -i 's/cln/cl/g' _aliases
+
+  sudo sed -i 's/cln/cl/g' /home/bitcoin/.lightning/config 
+  sudo sed -i 's/cln/cl/g' /home/bitcoin/.lightning/testnet/config 
+  sudo sed -i 's/cln/cl/g' /home/bitcoin/.lightning/signet/config 
+ 
+  sudo -u bitcoin mv /home/bitcoin/cln-plugins-available /home/bitcoin/cl-plugins-available
+  sudo -u bitcoin mv /home/bitcoin/cln-plugins-enabled /home/bitcoin/cl-plugins-enabled
+  sudo -u bitcoin mv /home/bitcoin/tcln-plugins-enabled /home/bitcoin/tcl-plugins-enabled
+  sudo -u bitcoin mv /home/bitcoin/scln-plugins-enabled /home/bitcoin/scl-plugins-enabled
+
+  sudo sed -i 's/cln/cl/g'  /etc/systemd/system/lightningd.service
+  sudo sed -i 's/cln/cl/g'  /etc/systemd/system/tlightningd.service
+  sudo sed -i 's/cln/cl/g'  /etc/systemd/system/slightningd.service
+
+  sudo /home/admin/config.scripts/blitz.shutdown.sh reboot
+fi
+
 ################################
 # INIT raspiblitz.info
 ################################
@@ -62,7 +86,7 @@ source ${configFile} 2>/dev/null
 source <(/home/admin/config.scripts/internet.sh status)
 
 # get basic hardware info
-source <(/home/admin/config.scripts/.sh status)
+source <(/home/admin/config.scripts/blitz.hardware.sh status)
 
 # get basic dns info
 source <(sudo /home/admin/config.scripts/internet.dns.sh test nodialog)
@@ -75,6 +99,7 @@ echo "baseimage=${baseimage}" >> $infoFile
 echo "cpu=${cpu}" >> $infoFile
 echo "board=${board}" >> $infoFile
 echo "ramMB=${ramMB}" >> $infoFile
+echo "ramGB=${ramGB}" >> $infoFile
 echo "network=${network}" >> $infoFile
 echo "chain=${chain}" >> $infoFile
 echo "localip='${localip}'" >> $infoFile
@@ -89,10 +114,23 @@ echo "fundRecovery=${fundRecovery}" >> $infoFile
 if [ "${setupStep}" != "100" ]; then
   echo "hostname=${hostname}" >> $infoFile
 fi
-sudo chmod 777 ${infoFile}
+sudo chmod 664 ${infoFile}
 
 ######################################
 # CHECK SD CARD INCONSISTENT STATE
+
+# make sure SSH server is configured & running
+sudo /home/admin/config.scripts/blitz.ssh.sh checkrepair >> ${logFile}
+
+# when a file 'stop' is on the sd card boot partition - stop for manual provision
+flagExists=$(sudo ls /boot/stop | grep -c 'stop')
+if [ "${flagExists}" == "1" ]; then
+  sudo rm /boot/stop
+  sed -i "s/^state=.*/state=stop/g" ${infoFile}
+  sed -i "s/^message=.*/message='stopped for manual provision'/g" ${infoFile}
+  echo "INFO: 'bootstrap stopped - run release after manual provison'" >> ${logFile}
+  exit 0
+fi
 
 # when the provision did not ran thru without error (ask user for fresh sd card)
 provisionFlagExists=$(sudo ls /home/admin/provision.flag | grep -c 'provision.flag')
@@ -101,7 +139,7 @@ if [ "${provisionFlagExists}" == "1" ]; then
   sudo systemctl stop lnd 2>/dev/null
   sed -i "s/^state=.*/state=inconsistentsystem/g" ${infoFile}
   sed -i "s/^message=.*/message='provision did not ran thru'/g" ${infoFile}
-  echo "FAIL: 'provision did not ran thru - need fresh sd card!" >> ${logFile}
+  echo "FAIL: 'provision did not ran thru' - need fresh sd card!" >> ${logFile}
   exit 1
 fi
 
@@ -124,46 +162,9 @@ if [ ${forceHDMIoutput} -eq 1 ]; then
   echo "HDMI switch found ... activating HDMI display output & reboot" >> $logFile
   sudo /home/admin/config.scripts/blitz.display.sh set-display hdmi >> $logFile
   systemInitReboot=1
+  sed -i "s/^message=.*/message='HDMI'/g" ${infoFile}
 else
   echo "No HDMI switch found. " >> $logFile
-fi
-
-################################
-# SSH SERVER CERTS RESET
-# if a file called 'ssh.reset' gets
-# placed onto the boot part of
-# the sd card - delete old ssh data
-################################
-
-sshReset=$(sudo ls /boot/ssh.reset* 2>/dev/null | grep -c reset)
-if [ ${sshReset} -eq 1 ]; then
-  # delete that file (to prevent loop)
-  sudo rm /boot/ssh.reset* >> $logFile
-  # delete ssh certs
-  echo "SSHRESET switch found ... stopping SSH and deleting old certs" >> $logFile
-  sudo systemctl stop sshd >> $logFile
-  sudo rm /mnt/hdd/ssh/ssh_host* >> $logFile
-  sudo ssh-keygen -A >> $logFile
-  systemInitReboot=1
-else
-  echo "No SSHRESET switch found. " >> $logFile
-fi
-
-################################
-# BACKGROUND TASK RUN FROM BEGINNING
-# on 1.7 sd card build background task runs after boostrap
-# but bootstrap already needs background task running now
-# REMOVE ON v1.8 release #2328
-################################
-
-backgroundNeedsEdit=$(sudo cat /etc/systemd/system/background.service 2>/dev/null | grep -c 'Wants=bootstrap.service')
-if [ ${backgroundNeedsEdit} -eq 1 ]; then
-  echo "BACKGROUND EDIT needed ..." >> $logFile
-  sudo sed -i "s/^Wants=.*/Wants=network.target/g" /etc/systemd/system/background.service
-  sudo sed -i "s/^After=.*/After=network.target/g" /etc/systemd/system/background.service
-  systemInitReboot=1
-else
-  echo "BACKGROUND EDIT already done. " >> $logFile
 fi
 
 ################################
@@ -172,12 +173,14 @@ fi
 # placed onto the boot part of
 # the sd card - delete old ssh data
 ################################
+
 source <(sudo /home/admin/config.scripts/blitz.bootdrive.sh status)
 if [ "${needsExpansion}" == "1" ] && [ "${fsexpanded}" == "0" ]; then
   echo "FSEXPAND needed ... starting process" >> $logFile
   sudo /home/admin/config.scripts/blitz.bootdrive.sh status >> $logFile
   sudo /home/admin/config.scripts/blitz.bootdrive.sh fsexpand >> $logFile
   systemInitReboot=1
+  sed -i "s/^message=.*/message='FSEXPAND'/g" ${infoFile}
 elif [ "${tooSmall}" == "1" ]; then
   echo "!!! FAIL !!!!!!!!!!!!!!!!!!!!" >> $logFile
   echo "SDCARD TOO SMALL 16G minimum" >> $logFile
@@ -193,12 +196,34 @@ else
 fi
 
 ################################
+# SSH SERVER CERTS RESET
+# if a file called 'ssh.reset' gets
+# placed onto the boot part of
+# the sd card - delete old ssh data
+################################
+
+sshReset=$(sudo ls /boot/ssh.reset* 2>/dev/null | grep -c reset)
+if [ ${sshReset} -eq 1 ]; then
+  # delete that file (to prevent loop)
+  sudo rm /boot/ssh.reset* >> $logFile
+  # delete ssh certs
+  echo "SSHRESET switch found ... stopping SSH and deleting old certs" >> $logFile
+  sudo /home/admin/config.scripts/blitz.ssh.sh renew >> $logFile
+  sudo /home/admin/config.scripts/blitz.ssh.sh backup >> $logFile
+  systemInitReboot=1
+  sed -i "s/^message=.*/message='SSHRESET'/g" ${infoFile}
+else
+  echo "No SSHRESET switch found. " >> $logFile
+fi
+
+################################
 # UASP FIX - first try
 # if HDD is connected on start
 ################################
 source <(sudo /home/admin/config.scripts/blitz.datadrive.sh uasp-fix)
 if [ "${neededReboot}" == "1" ]; then
   echo "UASP FIX applied (1st-try) ... reboot needed." >> $logFile
+  sed -i "s/^message=.*/message='UASP'/g" ${infoFile}
   systemInitReboot=1
 else
   echo "No UASP FIX needed (1st-try)." >> $logFile
@@ -209,8 +234,9 @@ fi
 # from actions above
 
 if [ "${systemInitReboot}" == "1" ]; then
-  sudo cp ${logFile} ${logFile}.systeminit
+  sudo cp ${logFile} /home/admin/raspiblitz.systeminit.log
   sudo sed -i "s/^state=.*/state=reboot/g" ${infoFile}
+  sleep 8
   sudo shutdown -r now
   sleep 100
   exit 0
@@ -230,26 +256,14 @@ sleep 5
 /home/admin/config.scripts/blitz.display.sh hide
 
 ################################
-# GENERATE UNIQUE SSH PUB KEYS
-# on first boot up
-################################
-
-numberOfPubKeys=$(sudo ls /etc/ssh/ | grep -c 'ssh_host_')
-if [ ${numberOfPubKeys} -eq 0 ]; then
-  echo "*** Generating new SSH PubKeys" >> $logFile
-  sudo dpkg-reconfigure openssh-server
-  echo "OK" >> $logFile
-fi
-
-################################
 # CLEANING BOOT SYSTEM
 ################################
 
 # resetting start count files
 echo "SYSTEMD RESTART LOG: blockchain (bitcoind/litecoind)" > /home/admin/systemd.blockchain.log
 echo "SYSTEMD RESTART LOG: lightning (LND)" > /home/admin/systemd.lightning.log
-sudo chmod 777 /home/admin/systemd.blockchain.log
-sudo chmod 777 /home/admin/systemd.lightning.log
+sudo chmod 666 /home/admin/systemd.blockchain.log
+sudo chmod 666 /home/admin/systemd.lightning.log
 
 # Emergency cleaning logs when over 1GB (to prevent SD card filling up)
 # see https://github.com/rootzoll/raspiblitz/issues/418#issuecomment-472180944
@@ -263,13 +277,14 @@ if [ ${logsMegaByte} -gt 1000 ]; then
     echo "/var/log/nginx is present"
   fi
   sudo rm -r /var/log/*
+  sudo service rsyslog restart
   if [ $nginxLog == 1 ]; then
     sudo mkdir /var/log/nginx
     echo "Recreated /var/log/nginx"
   fi
   sleep 3
   echo "WARN !! Logs in /var/log in were bigger then 1GB and got emergency delete to prevent fillup."
-  echo "If you see this in the logs please report to the GitHub issues, so LOG config needs to hbe optimized."
+  echo "If you see this in the logs please report to the GitHub issues, so LOG config needs to be optimized."
 else
   echo "OK - logs are at ${logsMegaByte} MB - within safety limit"
 fi
@@ -295,6 +310,7 @@ if [ ! -f /etc/fs-tuned-blitz ] && [ "${baseimage}" = "blitz" ]; then
 fi
 
 echo "Waiting for HDD/SSD ..." >> $logFile
+sudo ls -la /etc/ssh >> $logFile 
 until [ ${isMounted} -eq 1 ] || [ ${#hddCandidate} -gt 0 ]
 do
 
@@ -341,6 +357,7 @@ if [ "${neededReboot}" == "1" ]; then
   echo "UASP FIX applied (2nd-try) ... reboot needed." >> $logFile
   sudo cp ${logFile} ${logFile}.uasp
   sudo sed -i "s/^state=.*/state=reboot/g" ${infoFile}
+  sleep 8
   sudo shutdown -r now
   sleep 100
   exit 0
@@ -352,7 +369,6 @@ fi
 # WAIT LOOP: LOCALNET / INTERNET
 # after HDD > can contain WIFI conf
 ###################################
-
 gotLocalIP=0
 until [ ${gotLocalIP} -eq 1 ]
 do
@@ -367,6 +383,7 @@ do
     sed -i "s/^state=.*/state=noDHCP/g" ${infoFile}
     sed -i "s/^message=.*/message='Waiting for DHCP'/g" ${infoFile}
   elif [ ${#localip} -eq 0 ]; then
+    configWifiExists=$(sudo cat /etc/wpa_supplicant/wpa_supplicant.conf 2>/dev/null| grep -c "network=")
     if [ ${configWifiExists} -eq 0 ]; then
       # display user to connect LAN
       sed -i "s/^state=.*/state=noIP-LAN/g" ${infoFile}
@@ -393,6 +410,34 @@ sed -i "s/^message=.*/message='please wait'/g" ${infoFile}
 # get fresh info about data drive to continue
 source <(sudo /home/admin/config.scripts/blitz.datadrive.sh status)
 
+echo "isMounted: $isMounted" >> $logFile
+
+# check if UASP is already deactivated (on RaspiOS)
+# https://www.pragmaticlinux.com/2021/03/fix-for-getting-your-ssd-working-via-usb-3-on-your-raspberry-pi/
+cmdlineExists=$(sudo ls /boot/cmdline.txt 2>/dev/null | grep -c "cmdline.txt")
+if [ ${cmdlineExists} -eq 1 ] && [ ${#hddAdapterUSB} -gt 0 ] && [ ${hddAdapterUSAP} -eq 0 ]; then
+  echo "Checking for UASP deactivation ..." >> $logFile
+  usbQuirkActive=$(sudo cat /boot/cmdline.txt | grep -c "usb-storage.quirks=")
+  # check if its maybe other device
+  usbQuirkDone=$(sudo cat /boot/cmdline.txt | grep -c "usb-storage.quirks=${hddAdapterUSB}:u")
+  if [ ${usbQuirkActive} -gt 0 ] && [ ${usbQuirkDone} -eq 0 ]; then
+    # remove old usb-storage.quirks
+    sudo sed -i "s/usb-storage.quirks=[^ ]* //g" /boot/cmdline.txt
+  fi 
+  if [ ${usbQuirkDone} -eq 0 ]; then
+    # add new usb-storage.quirks
+    sudo sed -i "1s/^/usb-storage.quirks=${hddAdapterUSB}:u /" /boot/cmdline.txt
+    sudo cat /boot/cmdline.txt >> $logFile
+    # go into reboot to activate new setting
+    echo "DONE deactivating UASP for ${hddAdapterUSB} ... one more reboot needed ... " >> $logFile
+    sudo cp ${logFile} ${logFile}.uasp
+    sudo shutdown -r now
+    sleep 100
+  fi
+else 
+  echo "Skipping UASP deactivation ... cmdlineExists(${cmdlineExists}) hddAdapterUSB(${hddAdapterUSB}) hddAdapterUSAP(${hddAdapterUSAP})" >> $logFile
+fi
+
 # check if the HDD is auto-mounted ( auto-mounted = setup-done)
 echo "HDD already part of system: $isMounted" >> $logFile
 
@@ -403,14 +448,31 @@ echo "HDD already part of system: $isMounted" >> $logFile
 
 if [ ${isMounted} -eq 0 ]; then
 
+  # temp mount the HDD
+  echo "Temp mounting (1) data drive ($hddCandidate)" >> $logFile
+  if [ "${hddFormat}" != "btrfs" ]; then
+    source <(/home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddPartitionCandidate})
+  else
+    source <(/home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddCandidate})
+  fi
+  echo "Temp mounting (1) result: ${isMounted}" >> $logFile
+
   # write data needed for setup process into raspiblitz.info
   echo "hddCandidate='${hddCandidate}'" >> ${infoFile}
+  echo "hddGigaBytes=${hddGigaBytes}" >> ${infoFile}
   echo "hddBlocksBitcoin=${hddBlocksBitcoin}" >> ${infoFile}
   echo "hddBlocksLitecoin=${hddBlocksLitecoin}" >> ${infoFile}
   echo "hddGotMigrationData=${hddGotMigrationData}" >> ${infoFile}
   echo ""
-
   echo "HDD is there but not AutoMounted yet - Waiting for user Setup/Update" >> $logFile
+
+  # add some debug info to logfile
+  echo "# df " >> ${logFile}
+  df >> ${logFile}
+  echo "# lsblk -o NAME,FSTYPE,LABEL " >> ${logFile}
+  lsblk -o NAME,FSTYPE,LABEL >> ${logFile}
+  echo "# /home/admin/config.scripts/blitz.datadrive.sh status"
+  /home/admin/config.scripts/blitz.datadrive.sh status >> ${logFile}
 
   # determine correct setup phase
   infoMessage="Please Login for Setup"
@@ -419,8 +481,13 @@ if [ ${isMounted} -eq 0 ]; then
     infoMessage="Please Login for Migration"
     setupPhase="migration"
   elif [ "${hddRaspiData}" == "1" ]; then
+
+    # INIT OLD SSH HOST KEYS on Update/Recovery to prevent "Unknown Host" on ssh client
+    echo "COPY und Activating old SSH host keys" >> $logFile
+    /home/admin/config.scripts/blitz.ssh.sh restore >> $logFile
+
     # determine if this is a recovery or an update
-    # TODO: improve version/update detetion later
+    # TODO: improve version/update detection later
     isRecovery=$(echo "${hddRaspiVersion}" | grep -c "${codeVersion}")
     if [ "${isRecovery}" == "1" ]; then
       infoMessage="Please Login for Recovery"
@@ -429,6 +496,7 @@ if [ ${isMounted} -eq 0 ]; then
       infoMessage="Please Login for Update"
       setupPhase="update"
     fi
+
   fi
 
   # signal "WAIT LOOP: SETUP" to LCD, SSH & WEBAPI
@@ -442,19 +510,30 @@ if [ ${isMounted} -eq 0 ]; then
   # until SSH or WEBUI setup data is available
   #############################################
 
-  echo "## WAIT LOOP: USER SETUP/UPDATE/MIGRATION" >> $logFile
+  echo "## WAIT LOOP: USER SETUP/UPDATE/MIGRATION" >> ${logFile}
   until [ "${state}" == "waitprovision" ]
   do
 
     # get fresh info about data drive (in case the hdd gets disconnected)
     source <(sudo /home/admin/config.scripts/blitz.datadrive.sh status)
     if [ "${hddCandidate}" == "" ]; then
-      echo "!!! WARNING !!! Lost HDD connection .. triggering reboot, to restart system-init." >> $logFile
+      echo "!!! WARNING !!! Lost HDD connection .. triggering reboot, to restart system-init." >> ${logFile}
       sed -i "s/^state=.*/state=errorHDD/g" ${infoFile}
       sed -i "s/^message=.*/message='lost HDD - rebooting'/g" ${infoFile}
       sudo cp ${logFile} ${logFile}.error
-      sleep 6
+      sleep 8
       sudo shutdown -r now
+      sleep 100
+      exit 0
+    fi
+
+    # detect if network get deconnected again
+    # --> "removing network cable" can be used as signal to shutdown clean on test startup
+    source <(/home/admin/config.scripts/internet.sh status)
+    if [ "${localip}" == "" ]; then
+      sed -i "s/^state=.*/state=errorNetwork/g" ${infoFile}
+      sleep 8
+      sudo shutdown now
       sleep 100
       exit 0
     fi
@@ -474,27 +553,36 @@ if [ ${isMounted} -eq 0 ]; then
 
   # refresh data from info file
   source ${infoFile}
-  echo "# PROVISION PROCESS with setupPhase(${setupPhase})" >> $logFile
+  echo "# PROVISION PROCESS with setupPhase(${setupPhase})" >> ${logFile}
 
   # mark system on sd card as in setup process
   echo "the provision process was started but did not finish yet" > /home/admin/provision.flag
 
-  # temp mount the HDD
-  echo "Temp mounting data drive ($hddCandidate)" >> $logFile
+  # make sure HDD is mounted (could be freshly formatted by user on last loop)
+  source <(/home/admin/config.scripts/blitz.datadrive.sh status)
+  echo "Temp mounting (2) data drive ($hddCandidate)" >> ${logFile}
   if [ "${hddFormat}" != "btrfs" ]; then
     source <(sudo /home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddPartitionCandidate})
   else
     source <(sudo /home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddCandidate})
   fi
+  echo "Temp mounting (2) result: ${isMounted}" >> ${logFile}
+
+  # check that HDD was temp mounted
+  if [ "${isMounted}" != "1"]; then
+    sed -i "s/^state=.*/state=errorHDD/g" ${infoFile}
+    sed -i "s/^message=.*/message='Was not able to mount HDD (2)'/g" ${infoFile}
+    exit 1
+  fi
 
   # make sure all links between directories/drives are correct
-  echo "Refreshing links between directories/drives .." >> $logFile
+  echo "Refreshing links between directories/drives .." >> ${logFile}
   sudo /home/admin/config.scripts/blitz.datadrive.sh link
 
   # copy over the raspiblitz.conf created from setup to HDD
   configExists=$(ls /mnt/hdd/raspiblitz.conf 2>/dev/null | grep -c "raspiblitz.conf")
   if [ "${configExists}" != "1" ]; then
-    sudo cp /var/cache/raspiblitz/temp/raspiblitz.conf /mnt/hdd/raspiblitz.conf
+    sudo cp /var/cache/raspiblitz/temp/raspiblitz.conf ${configFile}
   fi
 
   # kick-off provision process
@@ -502,12 +590,34 @@ if [ ${isMounted} -eq 0 ]; then
   sed -i "s/^message=.*/message='Starting Provision'/g" ${infoFile}
 
   # load setup data
-  source ${setupFile} 2>$logFile
-  
-  # make sure basic info id in raspiblitz.info
+  echo "# Sourcing ${configFile} " >> ${logFile}
+  source ${configFile}
+  cat ${configFile} >> ${logFile}
+  echo "# Sourcing ${setupFile} " >> ${logFile}
+  source ${setupFile}
+  sed -e '/^password/d' ${setupFile} >> ${logFile}
+
+  # add some debug info to logfile
+  echo "# df " >> ${logFile}
+  df >> ${logFile}
+  echo "# lsblk -o NAME,FSTYPE,LABEL " >> ${logFile}
+  lsblk -o NAME,FSTYPE,LABEL >> ${logFile}
+
+  # make sure basic info is in raspiblitz.info
+  echo "# Update ${infoFile} " >> ${logFile}
   sudo sed -i "s/^network=.*/network=${network}/g" ${infoFile}
   sudo sed -i "s/^chain=.*/chain=${chain}/g" ${infoFile}
   sudo sed -i "s/^lightning=.*/lightning=${lightning}/g" ${infoFile}
+  cat ${infoFile} >> ${logFile}
+
+  # if migrationFile was uploaded - now import it
+  echo "# migrationFile(${migrationFile})" >> ${logFile}
+  if [ "${migrationFile}" != "" ]; then
+    sed -i "s/^message=.*/message='Unpacking Migration Data'/g" ${infoFile}
+    /home/admin/config.scripts/blitz.migration.sh import "${migrationFile}" >> ${logFile}
+    sed -i "s/^setupPhase=.*/setupPhase='recovery'/g" ${infoFile}
+    setupPhase="recovery"
+  fi
 
   ###################################
   # Set Password A (in all cases)
@@ -520,30 +630,34 @@ if [ ${isMounted} -eq 0 ]; then
     exit 1
   fi
 
-  echo "SETTING PASSWORD A" >> ${logFile}
+  echo "# setting PASSWORD A" >> ${logFile}
   sudo /home/admin/config.scripts/blitz.setpassword.sh a "${passwordA}" >> ${logFile}
 
   # if setup - run provision setup first
   if [ "${setupPhase}" == "setup" ]; then
     echo "Calling _provision.setup.sh for basic setup tasks .." >> $logFile
     sed -i "s/^message=.*/message='Provision Setup'/g" ${infoFile}
-    sudo /home/admin/_provision.setup.sh
-    if [ "$?" != "0" ]; then
-      echo "EXIT _provision.setup.sh BECAUSE OF ERROR STATE ($?)" >> $logFile
-      echo "This can also happen if _provision.setup.sh has syntax errros" >> $logFile
+    /home/admin/_provision.setup.sh
+    errorState=$?
+    sudo cat /home/admin/raspiblitz.provision-setup.log
+    if [ "$errorState" != "0" ]; then
+      echo "EXIT _provision.setup.sh BECAUSE OF ERROR STATE ($errorState)" >> $logFile
+      echo "This can also happen if _provision.setup.sh has syntax errors" >> $logFile
       sed -i "s/^state=.*/state='error'/g" ${infoFile}
       sed -i "s/^message=.*/message='_provision.setup.sh fail'/g" ${infoFile}
       exit 1
     fi
   fi
 
-  # if migration - run the migration provision first
+  # if migration from other nodes - run the migration provision first
   if [ "${setupPhase}" == "migration" ]; then
     echo "Calling _provision.migration.sh for possible migrations .." >> $logFile
     sed -i "s/^message=.*/message='Provision migration'/g" ${infoFile}
-    sudo /home/admin/_provision.migration.sh
-    if [ "$?" != "0" ]; then
-      echo "EXIT _provision.migration.sh BECAUSE OF ERROR STATE ($?)" >> $logFile
+    /home/admin/_provision.migration.sh
+    errorState=$?
+    cat /home/admin/raspiblitz.provision-migration.log
+    if [ "$errorState" != "0" ]; then
+      echo "EXIT _provision.migration.sh BECAUSE OF ERROR STATE ($errorState)" >> $logFile
       echo "This can also happen if _provision.migration.sh has syntax errros" >> $logFile
       sed -i "s/^state=.*/state='error'/g" ${infoFile}
       sed -i "s/^message=.*/message='_provision.migration.sh fail'/g" ${infoFile}
@@ -551,14 +665,16 @@ if [ ${isMounted} -eq 0 ]; then
     fi
   fi
 
-  # if update/recovery/migration
+  # if update/recovery/migration-followup
   if [ "${setupPhase}" == "update" ] || [ "${setupPhase}" == "recovery" ] || [ "${setupPhase}" == "migration" ]; then
     echo "Calling _provision.update.sh .." >> $logFile
     sed -i "s/^message=.*/message='Provision Update/Recovery/Migration'/g" ${infoFile}
-    sudo /home/admin/_provision.update.sh
-    if [ "$?" != "0" ]; then
-      echo "EXIT _provision.update.sh BECAUSE OF ERROR STATE ($?)" >> $logFile
-      echo "This can also happen if _provision.update.sh has syntax errros" >> $logFile
+    /home/admin/_provision.update.sh
+    errorState=$?
+    cat /home/admin/raspiblitz.provision-update.log
+    if [ "$errorState" != "0" ]; then
+      echo "EXIT _provision.update.sh BECAUSE OF ERROR STATE ($errorState)" >> $logFile
+      echo "This can also happen if _provision.update.sh has syntax errors" >> $logFile
       sed -i "s/^state=.*/state='error'/g" ${infoFile}
       sed -i "s/^message=.*/message='_provision.update.sh fail'/g" ${infoFile}
       exit 1
@@ -568,25 +684,23 @@ if [ ${isMounted} -eq 0 ]; then
   # finalize provisioning
   echo "Calling _bootstrap.provision.sh for general system provisioning (${setupPhase}) .." >> $logFile
   sed -i "s/^message=.*/message='Provision Basics'/g" ${infoFile}
-  sudo /home/admin/_provision_.sh
-  if [ "$?" != "0" ]; then
-    echo "EXIT _provision_.sh BECAUSE OF ERROR STATE" >> $logFile
-    echo "This can also happen if _provision_.sh has syntax errros" >> $logFile
+  /home/admin/_provision_.sh
+  errorState=$?
+  if [ "$errorState" != "0" ]; then
+    echo "EXIT _provision_.sh BECAUSE OF ERROR STATE ($errorState)" >> $logFile
+    echo "This can also happen if _provision_.sh has syntax errors" >> $logFile
     sed -i "s/^state=.*/state='error'/g" ${infoFile}
     sed -i "s/^message=.*/message='_provision_.sh fail'/g" ${infoFile}
     exit 1
   fi
 
-  # unlock lnd if needed
-  source ${setupFile}
-  echo "checking Unlock ..." >> $logFile
-  if [ "${lightning}" == "lnd" ] && [ "${passwordC}" != "" ]; then
-    echo "Unlock LND at end of provision with temp stored password C" >> $logFile
-    /home/admin/config.scripts/lnd.unlock.sh unlock "${passwordC}" >> ${logFile}
-    sleep 3
-  else
-    echo "No lightning unlock (${lightning}) or password C temp stored" >> $logFile
-  fi
+  # everyone can read the config but it can only be
+  # edited/written by root ot admin user (part of group sudo)
+  sudo chown root:sudo ${configFile}
+  sudo chmod 664 ${configFile}
+
+  # delete provision in progress flag
+  sudo rm /home/admin/provision.flag
 
   # mark provision process done
   sed -i "s/^message=.*/message='Provision Done'/g" ${infoFile}
@@ -601,54 +715,16 @@ if [ ${isMounted} -eq 0 ]; then
   done
 
   ###################################################
-  # WAIT LOOP: AFTER FRESH SETUP, MIGRATION
-  # successfull update & recover can skip this
+  # HANDOVER TO FINAL SETUP CONTROLLER
   ###################################################
 
-  if [ "${setupPhase}" == "setup" ] || [ "${setupPhase}" == "migration" ]; then
-    echo "# Go into WAIT LOOP for final setup dialog ..." >> $logFile
-    sed -i "s/^state=.*/state=waitfinal/g" ${infoFile}
-    sed -i "s/^message=.*/message='Setup Done'/g" ${infoFile}
-  else
-    echo "# Skip WAIT LOOP boot directly into main menu ..." >> $logFile
-    sed -i "s/^state=.*/state=ready/g" ${infoFile}
-    sed -i "s/^message=.*/message='Setup Done'/g" ${infoFile}
-  fi
+  echo "# HANDOVER TO FINAL SETUP CONTROLLER ..." >> $logFile
+  sed -i "s/^state=.*/state=waitfinal/g" ${infoFile}
+  sed -i "s/^message=.*/message='Setup Done'/g" ${infoFile}
 
-  source ${infoFile}
-  echo "WAIT LOOP: FINAL SETUP .. see controlFinalDialog.sh" >> $logFile
-  until [ "${state}" == "ready" ]
-  do
-
-    # get latest network info & update raspiblitz.info (in case network changes)
-    source <(/home/admin/config.scripts/internet.sh status)
-    sed -i "s/^localip=.*/localip='${localip}'/g" ${infoFile}
-
-    # give the loop a little bed time
-    sleep 4
-
-    # check info file for updated values
-    # especially the state for checking loop
-    source ${infoFile}
-
-  done
-  echo "WAIT LOOP: DONE" >> $logFile
-
-  ########################################
-  # AFTER FINAL SETUP TASKS
-
-  # make sure for future starts that blockchain service gets started after boostrap
-  sed -i "s/^Wants=.*/Wants=bootstrap.service/g" /etc/systemd/system/${network}d.service
-  sed -i "s/^After=.*/After=network.target/g" /etc/systemd/system/${network}d.service
-
-  # delete provision in progress flag
-  sudo rm /home/admin/provision.flag
-
-  # delete setup data from RAM
-  sudo rm ${setupFile}
-
-  # signal that setup phas is over
-  sed -i "s/^setupPhase=.*/setupPhase='done'/g" ${infoFile}
+  # system has to wait before reboot to present like seed words and other info/options to user
+  echo "BOOTSTRAP EXIT ... waiting for final setup controller to initiate final reboot." >> $logFile
+  exit 1
 
 else
 
@@ -657,12 +733,6 @@ else
   # NORMAL START BOOTSTRAP (not executed after setup)
   # Blockchain & Lightning not running
   ############################
-
-  ######################################################################
-  # MAKE SURE LND RPC/REST ports are standard & open to all connections 
-  ######################################################################
-  sudo sed -i "s/^rpclisten=.*/rpclisten=0.0.0.0:10009/g" /mnt/hdd/lnd/lnd.conf
-  sudo sed -i "s/^restlisten=.*/restlisten=0.0.0.0:8080/g" /mnt/hdd/lnd/lnd.conf
 
   #################################
   # FIX BLOCKCHAINDATA OWNER (just in case)
@@ -705,7 +775,7 @@ if [ ${configWifiExists} -eq 1 ]; then
   sudo cp /etc/wpa_supplicant/wpa_supplicant.conf /mnt/hdd/app-data/wpa_supplicant.conf
 fi
 
-# make sure lndAddress & lndPort exist in cofigfile
+# make sure lndAddress & lndPort exist in configfile
 valueExists=$(cat ${configFile} | grep -c 'lndPort=')
 if [ ${valueExists} -eq 0 ]; then
   lndPort=$(sudo cat /mnt/hdd/lnd/lnd.conf | grep "^listen=*" | cut -f2 -d':')
@@ -726,6 +796,17 @@ source ${configFile}
 # update public IP on boot - set to domain if available
 /home/admin/config.scripts/internet.sh update-publicip ${lndAddress} 
 
+# make constant UASP entry in raspiblitz.conf if still done by flag file
+# uaspForced comes from blitz.datadrive.sh status
+if [ ${uaspForced} -eq 1 ]; then
+  entryExists=$(cat /mnt/hdd/raspiblitz.conf 2>/dev/null | grep -c 'forceUasp=on')
+  if [ ${entryExists} -eq 0 ]; then
+      sudo sed -i '/forceUasp=.*/d' /mnt/hdd/raspiblitz.conf
+      echo "forceUasp=on" >> /mnt/hdd/raspiblitz.conf
+      echo "DONE forceUasp=on recorded in raspiblitz.conf" >> $logFile
+  fi
+fi
+
 #################################
 # MAKE SURE USERS HAVE LATEST LND CREDENTIALS
 #################################
@@ -736,7 +817,7 @@ if [ ${#network} -gt 0 ] && [ ${#chain} -gt 0 ]; then
   sudo /home/admin/config.scripts/lnd.credentials.sh sync >> $logFile
 
 else 
-  echo "skipping LND credientials sync" >> $logFile
+  echo "skipping LND credentials sync" >> $logFile
 fi
 
 ################################
@@ -780,7 +861,7 @@ fi
 # PREPARE SUBSCRIPTIONS DATA DIRECTORY
 ######################################
 
-if [ -d "/mnt/hdd/app-data/subscrptions" ]; then
+if [ -d "/mnt/hdd/app-data/subscriptions" ]; then
   echo "OK: subscription data directory exists"
 else
   echo "CREATE: subscription data directory"
@@ -788,15 +869,14 @@ else
   sudo chown admin:admin /mnt/hdd/app-data/subscriptions
 fi
 
-# mark that node is ready now
-sed -i "s/^state=.*/state=ready/g" ${infoFile}
-sed -i "s/^message=.*/message='Node Running'/g" ${infoFile}
-
 # make sure that bitcoin service is active
 sudo systemctl enable ${network}d
 
+# make sure setup/provision is marked as done
+sudo rm /home/admin/provision.flag
 sed -i "s/^setupPhase=.*/setupPhase='done'/g" ${infoFile}
 sed -i "s/^state=.*/state=ready/g" ${infoFile}
+sed -i "s/^message=.*/message='Node Running'/g" ${infoFile}
 
 echo "DONE BOOTSTRAP" >> $logFile
 exit 0

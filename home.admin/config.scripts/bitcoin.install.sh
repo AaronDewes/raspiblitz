@@ -43,6 +43,7 @@ function removeParallelService() {
     fi
     sudo systemctl stop ${prefix}bitcoind
     sudo systemctl disable ${prefix}bitcoind
+    sudo rm /etc/systemd/system/${prefix}bitcoind.service 2>/dev/null
     if [ ${bitcoinprefix} = signet ];then
       # check for signet service set up by joininbox  
       if [ -f "/etc/systemd/system/signetd.service" ];then
@@ -106,22 +107,6 @@ ${bitcoinprefix}.zmqpubrawtx=tcp://127.0.0.1:${zmqprefix}333"|\
     sudo tee -a /mnt/hdd/${network}/${network}.conf
   fi
 
-  if [ -f /mnt/hdd/lnd/lnd.conf ];then
-    echo "# Check mainnet lnd.conf" 
-    RPCUSER=$(sudo cat /mnt/hdd/${network}/${network}.conf | grep rpcuser | cut -c 9-)
-    RPCPSW=$(sudo cat /mnt/hdd/${network}/${network}.conf | grep rpcpassword | cut -c 13-)
-    # it does not pick up main.zmqpubraw entries from bitcoin.conf, need to set manually
-    if [ $(grep -c zmqpubrawblock /mnt/hdd/lnd/lnd.conf) -eq 0 ];then 
-      echo "
-[bitcoind]
-bitcoind.rpcuser=$RPCUSER
-bitcoind.rpcpass=$RPCPSW
-bitcoind.zmqpubrawblock=tcp://127.0.0.1:28332
-bitcoind.zmqpubrawtx=tcp://127.0.0.1:28333
-"   | sudo tee -a /mnt/hdd/lnd/lnd.conf
-    fi
-  fi
-
   # addnode
   if [ ${bitcoinprefix} = signet ];then
     if [ $(grep -c "${bitcoinprefix}.addnode" < /mnt/hdd/${network}/${network}.conf) -eq 0 ];then
@@ -149,8 +134,7 @@ User=bitcoin
 Group=bitcoin
 Type=forking
 PIDFile=/mnt/hdd/bitcoin/${prefix}bitcoind.pid
-ExecStart=/usr/local/bin/bitcoind -${CHAIN} -daemon\
- -pid=/mnt/hdd/bitcoin/${prefix}bitcoind.pid
+ExecStart=/usr/local/bin/bitcoind -${CHAIN} -daemon -pid=/mnt/hdd/bitcoin/${prefix}bitcoind.pid -debuglogfile=/mnt/hdd/bitcoin/${prefix}debug.log
 Restart=always
 TimeoutSec=120
 RestartSec=30
@@ -181,6 +165,7 @@ WantedBy=multi-user.target
  -${CHAIN}\"' \
       >> /home/admin/_aliases"
     fi
+    sudo chown admin:admin /home/admin/_aliases
   fi
 
   source /home/admin/raspiblitz.info
@@ -197,13 +182,7 @@ WantedBy=multi-user.target
     echo "# Installed $(bitcoind --version | grep version)"
     echo 
     echo "# Monitor the ${prefix}bitcoind with:"
-    if [ ${CHAIN} = signet ]; then
-      echo "sudo tail -f /mnt/hdd/bitcoin/signet/debug.log"
-    elif [ ${CHAIN} = testnet ]; then
-      echo "sudo tail -f /mnt/hdd/bitcoin/testnet3/debug.log"
-    elif [ ${CHAIN} = mainnet ]; then
-      echo "sudo tail -f /mnt/hdd/bitcoin/debug.log"      
-    fi
+    echo "# sudo tail -f /mnt/hdd/bitcoin/${prefix}debug.log"
     echo
   else
     echo "# Installation failed"

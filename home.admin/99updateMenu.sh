@@ -42,8 +42,8 @@ Do you want to download Lightning Data Backup now?
       sleep 2
       if [ "${lightning}" == "lnd" ]; then
         /home/admin/config.scripts/lnd.backup.sh lnd-export-gui
-      elif [ "${lightning}" == "cln" ]; then
-        /home/admin/config.scripts/cln.backup.sh cln-export-gui
+      elif [ "${lightning}" == "cl" ]; then
+        /home/admin/config.scripts/cl.backup.sh cl-export-gui
       else
         echo "TODO: Implement Data Backup for '${lightning}'"
       fi
@@ -59,8 +59,8 @@ Do you want to download Lightning Data Backup now?
       sleep 2
       if [ "${lightning}" == "lnd" ]; then
         /home/admin/config.scripts/lnd.backup.sh lnd-export
-      elif [ "${lightning}" == "cln" ]; then
-        /home/admin/config.scripts/cln.backup.sh cln-export
+      elif [ "${lightning}" == "cl" ]; then
+        /home/admin/config.scripts/cl.backup.sh cl-export
       else
         echo "TODO: Implement Data Backup for '${lightning}'"
         sleep 3
@@ -69,7 +69,7 @@ Do you want to download Lightning Data Backup now?
   fi
 
   whiptail --title "READY TO UPDATE?" --yes-button "START UPDATE" --no-button "Cancel" --yesno "If you start the update: The RaspiBlitz will power down.
-Once the LCD is white and no LEDs are blicking anymore:
+Once the LCD is white and no LEDs are blinking anymore:
 
 - Remove the Power from RaspiBlitz
 - Exchange the old with the new SD card
@@ -287,6 +287,75 @@ Do you really want to update LND now?
   esac
 }
 
+cl()
+{
+
+  # get cl info
+  source <(sudo -u admin /home/admin/config.scripts/cl.update.sh info)
+
+  # C-lightning Update Options
+  OPTIONS=()
+  if [ ${clUpdateInstalled} -eq 0 ]; then
+    OPTIONS+=(VERIFIED "Optional C-lightning update to ${clUpdateVersion}")
+  fi
+  OPTIONS+=(RECKLESS "Experimental C-lightning update to ${clLatestVersion}")
+
+  CHOICE=$(whiptail --clear --title "Update C-lightning Options" --menu "" 9 60 2 "${OPTIONS[@]}" 2>&1 >/dev/tty)
+
+  clear
+  case $CHOICE in
+    VERIFIED)
+      if [ ${clUpdateInstalled} -eq 1 ]; then
+        whiptail --title "ALREADY INSTALLED" --msgbox "The C-lightning version ${clUpdateVersion} is already installed." 8 30
+        exit 0
+      fi
+      whiptail --title "OPTIONAL C-lightning UPDATE" --yes-button "Cancel" --no-button "Update" --yesno "BEWARE on updating to C-lightning v${clUpdateVersion}:
+
+${clUpdateComment}
+
+Do you really want to update C-lightning now?
+      " 16 58
+      if [ $? -eq 0 ]; then
+        echo "# cancel update"
+        exit 0
+      fi
+      error=""
+      warn=""
+      source <(sudo -u admin /home/admin/config.scripts/cl.update.sh verified)
+      if [ ${#error} -gt 0 ]; then
+        whiptail --title "ERROR" --msgbox "${error}" 8 30
+      else
+        echo "# C-lightning was updated successfully"
+        exit 0
+      fi
+      ;;
+    RECKLESS)
+      whiptail --title "RECKLESS C-lightning UPDATE to ${clLatestVersion}" --yes-button "Cancel" --no-button "Update" --yesno "Using the 'RECKLESS' C-lightning update will simply
+grab the latest C-lightning release published on the C-lightning GitHub page (also release candidates).
+
+There will be no security checks on signature, etc.
+
+This update mode is only recommended for testing and
+development nodes with no serious funding. 
+
+Do you really want to update C-lightning now?
+      " 16 58
+      if [ $? -eq 0 ]; then
+        echo "# cancel update"
+        exit 0
+      fi
+      error=""
+      source <(sudo -u admin /home/admin/config.scripts/cl.update.sh reckless)
+      if [ ${#error} -gt 0 ]; then
+        whiptail --title "ERROR" --msgbox "${error}" 8 30
+      else
+        echo "# C-lightning was updated successfully"
+        exit 0
+      fi
+      ;;
+  esac
+}
+
 bitcoinUpdate() {
   # get bitcoin info
   source <(sudo -u admin /home/admin/config.scripts/bitcoin.update.sh info)
@@ -373,16 +442,18 @@ if [ "$1" == "github" ]; then
 fi
 
 # Basic Options Menu
-HEIGHT=10 # add 6 to CHOICE_HEIGHT + MENU lines
 WIDTH=55
-CHOICE_HEIGHT=4 # 1 line / OPTIONS
 OPTIONS=()
 OPTIONS+=(RELEASE "RaspiBlitz Release Update/Recovery")
 OPTIONS+=(PATCH "Patch RaspiBlitz v${codeVersion}")
 OPTIONS+=(BITCOIN "Bitcoin Core Update Options")
 
-if [ "${lightning}" == "lnd" ]; then
+if [ "${lightning}" == "lnd" ] || [ "${lnd}" == "on" ]; then
   OPTIONS+=(LND "Interim LND Update Options")
+fi
+
+if [ "${lightning}" == "cl" ] || [ "${cl}" == "on" ]; then
+  OPTIONS+=(CL "Interim C-lightning Update Options")
 fi
 
 if [ "${bos}" == "on" ]; then
@@ -394,11 +465,7 @@ if [ "${thunderhub}" == "on" ]; then
 fi
 
 if [ "${specter}" == "on" ]; then
-  OPTIONS+=(SPECTER "Update Cryptoadvance Specter")
-fi
-
-if [ "${rtlWebinterface}" == "on" ]; then
-  OPTIONS+=(RTL "Update RTL")
+  OPTIONS+=(SPECTER "Update Specter Desktop")
 fi
 
 if [ "${sphinxrelay}" == "on" ]; then
@@ -417,11 +484,11 @@ if [ "${runBehindTor}" == "on" ]; then
   OPTIONS+=(TOR "Update Tor from the source code")
 fi
 
-CHOICE_HEIGHT=$(("${#OPTIONS[@]}"))
+CHOICE_HEIGHT=$(("${#OPTIONS[@]}/2+1"))
 HEIGHT=$((CHOICE_HEIGHT+6))  
 CHOICE=$(dialog --clear \
                 --backtitle "" \
-                --title "Update Options" \
+                --title " Update Options " \
                 --ok-label "Select" \
                 --cancel-label "Main menu" \
                 --menu "" \
@@ -439,6 +506,9 @@ case $CHOICE in
   LND)
     lnd
     ;;
+  CL)
+    cl
+    ;;
   BITCOIN)
     bitcoinUpdate
     ;;
@@ -449,10 +519,7 @@ case $CHOICE in
     /home/admin/config.scripts/bonus.thunderhub.sh update
     ;;
   SPECTER)
-    /home/admin/config.scripts/bonus.cryptoadvance-specter.sh update
-    ;;
-  RTL)
-    /home/admin/config.scripts/bonus.rtl.sh update
+    /home/admin/config.scripts/bonus.specter.sh update
     ;;
   SPHINX)
     /home/admin/config.scripts/bonus.sphinxrelay.sh update

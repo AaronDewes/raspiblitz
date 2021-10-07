@@ -1,5 +1,8 @@
 #!/bin/bash
 
+# DEPRECATED: https://github.com/rootzoll/raspiblitz/issues/2264#issuecomment-872655605
+# script will stay on v1.7.1 ... but should be removed after that
+
 # command info
 if [ $# -eq 0 ] || [ "$1" = "-h" ] || [ "$1" = "-help" ]; then
  echo "# script to upload a file to DropBox (without third party libs)"
@@ -34,7 +37,7 @@ https://github.com/rootzoll/raspiblitz/#a-dropbox-backup-target" 11 70 2>/home/a
     shred -u /home/admin/.tmp
   fi
 
-  # set in config - that acivates the dropbox back in background process
+  # set in config - that activates the dropbox back in background process
   if [ ${#authtoken} -gt 0 ]; then
     if [ ${#dropboxBackupTarget} -eq 0 ]; then
       echo "dropboxBackupTarget='${authtoken}'" >> /mnt/hdd/raspiblitz.conf
@@ -118,7 +121,7 @@ elif [ "${MODE}" == "upload" ]; then
   fi
 
 else
-  echo "err='unkown mode'"
+  echo "err='unknown mode'"
   exit 1
 fi
 

@@ -17,6 +17,9 @@ if [ "$EUID" -ne 0 ]
   exit
 fi
 
+# trap to delete on any exit
+trap 'rm -f $_temp' EXIT
+
 # tempfile 
 _temp=$(mktemp -p /dev/shm/)
 
@@ -39,9 +42,14 @@ OPTIONS=()
 if [ ${#abcd} -eq 0 ]; then
     reboot=1;
     emptyAllowed=1
-    OPTIONS+=(A "Master User Password / SSH")
-    OPTIONS+=(B "RPC Password (blockchain/lnd)")
-    OPTIONS+=(C "LND Wallet Password")
+    OPTIONS+=(A "Master Login Password")
+    OPTIONS+=(B "RPC/App Password")
+    if [ "${lightning}" == "lnd" ] || [ "${lnd}" == "on" ]; then
+      OPTIONS+=(C "LND Lightning Wallet Password")
+    fi
+    if [ "${cl}" == "on" ] && [ "${clEncryptedHSM}" == "on" ]; then
+      OPTIONS+=(CL "C-Lightning Wallet Password")
+    fi
     CHOICE=$(dialog --clear \
                 --backtitle "RaspiBlitz" \
                 --title "Set Password" \
@@ -62,6 +70,9 @@ if [ ${#abcd} -eq 0 ]; then
           ;;
         D)
           abcd='d';
+          ;;
+        CL)
+          abcd='cl';
           ;;
         *)
           exit 0
@@ -130,7 +141,7 @@ if [ "${abcd}" = "a" ]; then
       exit 0
     fi
 
-    # use entred password now as parameter
+    # use entered password now as parameter
     newPassword="${password1}"
 
   fi  
@@ -206,7 +217,7 @@ elif [ "${abcd}" = "b" ]; then
       exit 0
     fi
 
-    # use entred password now as parameter
+    # use entered password now as parameter
     newPassword="${password1}"
   fi
 
@@ -360,26 +371,13 @@ elif [ "${abcd}" = "c" ]; then
   sleep 2
 
   err=""
-  source <(sudo /home/admin/config.scripts/lnd.initwallet.py change-password $oldPassword $newPassword)
+  source <(sudo /home/admin/config.scripts/lnd.initwallet.py change-password mainnet $oldPassword $newPassword)
   if [ "${err}" != "" ]; then
     dialog --backtitle "RaspiBlitz - Setup" --msgbox "FAIL -> Was not able to change password\n\n${err}\n${errMore}" 10 52
     clear
     echo "# FAIL: Was not able to change password"
     exit 0
   fi
-
-  # old manual way
-  # clear
-  # echo ""
-  # echo "****************************************************************************"
-  # echo "Change LND Wallet Password --> lncli --chain=${network} --network=${chain}net changepassword"
-  # echo "****************************************************************************"
-  # echo "This is your Password C on the RaspiBlitz to unlock your LND wallet."
-  # echo "If you had Auto-Unlock active - you need to re-activate after this."
-  # echo "****************************************************************************"
-  # sleep 6
-  # let LND-CLI handle the password change
-  # sudo -u bitcoin lncli --chain=${network} --network=${chain}net changepassword
 
   # final user output
   echo ""
@@ -443,7 +441,12 @@ elif [ "${abcd}" = "x" ]; then
 
     # store result is file
     echo "${password1}" > ${resultFile}
-    
+
+elif [ "${abcd}" = "cl" ]; then
+  /home/admin/config.scripts/cl.hsmtool.sh change-password mainnet
+  # do not reboot for cl password
+  reboot=0
+
 # everything else
 else
   echo "FAIL: there is no password '${abcd}' (reminder: use lower case)"

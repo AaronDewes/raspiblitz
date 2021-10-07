@@ -68,6 +68,11 @@ migrate_lnd_conf () {
   # start from fresh configuration template (user will set password B on recovery)
   sudo cp /home/admin/assets/lnd.bitcoin.conf /mnt/hdd/lnd/lnd.conf
   sudo sed -i "s/^alias=.*/alias=${nodename}/g" /mnt/hdd/lnd/lnd.conf
+
+  # make sure correct file permisions are set
+  sudo chown bitcoin:bitcoin /mnt/hdd/lnd/lnd.conf
+  sudo chmod 664 /mnt/hdd/lnd/lnd.conf
+
 }
 
 migrate_raspiblitz_conf () {
@@ -89,8 +94,8 @@ migrate_raspiblitz_conf () {
   echo "lcdrotate=1" >> /home/admin/raspiblitz.conf
   echo "runBehindTor=on" >> /home/admin/raspiblitz.conf
   sudo mv /home/admin/raspiblitz.conf /mnt/hdd/raspiblitz.conf
-  sudo chown root:root /mnt/hdd/raspiblitz.conf
-  sudo chmod 777 /mnt/hdd/raspiblitz.conf
+  sudo chown root:sudo /mnt/hdd/raspiblitz.conf
+  sudo chmod 664 /mnt/hdd/raspiblitz.conf
 
   # rename ext4 data drive
   sudo e2label /dev/sda1 BLOCKCHAIN
@@ -104,22 +109,10 @@ if [ "$1" = "migration-umbrel" ]; then
 
   source <(sudo /home/admin/config.scripts/blitz.datadrive.sh status)
 
-  # can olny migrate unmonted data disks
-  if [ "${isMounted}" == "1" ]; then
-    echo "err='cannot migrate mounted drive'"
-    exit 1
+  # make sure data drive is mounted
+  if [ "${isMounted}" != "1" ]; then
+    source <(sudo /home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddPartitionCandidate})
   fi
-  
-  # check if the HDD is an umbrel data disk
-  if [ "${hddGotMigrationData}" == "umbrel" ]; then
-    echo "# found UMBREL data disk at ${hddPartitionCandidate}"
-  else
-    echo "err='not an umbrel disk'"
-    exit 1
-  fi
-
-  # temp mount the data drive
-  source <(sudo /home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddPartitionCandidate})
   if [ "${isMounted}" == "1" ]; then
     echo "# mounted ${hddPartitionCandidate} to /mnt/hdd"
   else
@@ -185,7 +178,7 @@ if [ "$1" = "migration-umbrel" ]; then
   # call function for final migration
   migrate_raspiblitz_conf ${nameNode}
 
-  echo "# OK ... data disk converted to RaspiBlitz - reboot with fresh sd card to recover"
+  echo "# OK ... data disk converted to RaspiBlitz"
   exit 0
 fi
 
@@ -198,22 +191,10 @@ if [ "$1" = "migration-mynode" ]; then
 
   source <(sudo /home/admin/config.scripts/blitz.datadrive.sh status)
 
-  # can olny migrate unmonted data disks
-  if [ "${isMounted}" == "1" ]; then
-    echo "err='cannot migrate mounted drive'"
-    exit 1
+  # make sure data drive is mounted
+  if [ "${isMounted}" != "1" ]; then
+    source <(sudo /home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddPartitionCandidate})
   fi
-
-  # check if the HDD is an umbrel data disk
-  if [ "${hddGotMigrationData}" == "mynode" ]; then
-    echo "# found MYNODE data disk at ${hddPartitionCandidate}"
-  else
-    echo "err='not an mynode disk'"
-    exit 1
-  fi
-
-  # temp mount the data drive
-  source <(sudo /home/admin/config.scripts/blitz.datadrive.sh tempmount ${hddPartitionCandidate})
   if [ "${isMounted}" == "1" ]; then
     echo "# mounted ${hddPartitionCandidate} to /mnt/hdd"
   else
@@ -306,6 +287,7 @@ if [ "$1" = "export" ]; then
 
   # zip it
   echo "# Building the Export File (this can take some time) .."
+  sudo mkdir -p ${defaultUploadPath}
   sudo tar -zcvf ${defaultUploadPath}/raspiblitz-export-temp.tar.gz -X ~/.exclude.temp /mnt/hdd 1>~/.include.temp 2>/dev/null
 
   # get md5 checksum
@@ -360,7 +342,7 @@ if [ "$1" = "export-gui" ]; then
   echo "* DOWNLOAD THE MIGRATION FILE *"
   echo "*******************************"
   echo 
-  echo "On yoz Linux or MacOS Laptop - RUN IN NEW TERMINAL:"
+  echo "On your Linux or MacOS Laptop - RUN IN NEW TERMINAL:"
   echo "${scpDownloadUnix}"
   echo "On Windows use command:"
   echo "${scpDownloadWin}"
@@ -411,7 +393,7 @@ if [ "$1" = "import" ]; then
     exit 1
   fi
 
-  # copy bitcoin/litecoin data backups back to orgplaces (if part of backup)
+  # copy bitcoin/litecoin data backups back to original places (if part of backup)
   if [ -d "/mnt/hdd/backup_bitcoin" ]; then
     echo "# Copying back bitcoin backup data .."
     sudo mkdir /mnt/hdd/bitcoin
